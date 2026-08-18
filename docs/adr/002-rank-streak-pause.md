@@ -85,7 +85,7 @@ startPause(user, days):
   window = RankWindow.current(user)
   assert window.pause_used == false        // 1 per window, enforced here
   window.paused_from = today
-  window.paused_until = today + days
+  window.paused_until = today + days - 1   // inclusive span of `days` days: day 1 == today, day `days` == today + days - 1
   window.pause_used = true
 
 isPaused(user, date):
