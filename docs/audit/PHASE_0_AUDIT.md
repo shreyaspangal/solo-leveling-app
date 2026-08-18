@@ -97,9 +97,9 @@ even after the specific instance is resolved.
 **Guardrail:** Add a minimal `.github/workflows/ci.yml` running `npm run lint`, `tsc --noEmit`, and `npm test` on every push/PR **before Phase 1 adds more surface area**. Until this exists, any session merging code is responsible for manually running all three checks — this document is the reminder that "tests pass locally" is not yet a bot-verified claim.
 
 ### D2. Single commit, large uncommitted working tree
-**Status:** OPEN (process, not a defect)
-**Finding:** All of Phase 0 (auth, engine, migrations, ADRs) sits uncommitted on top of the single `Initial commit from Create Next App`.
-**Guardrail:** Land Phase 0 as incremental, reviewable commits — one per ADR or per vertical slice (matching the TDD workflow's own granularity: failing test → implementation → refactor, each committed) — rather than one giant commit. Apply this going forward for Phase 1+ too: **commit at the same granularity the TDD workflow describes, not at the end of a whole phase.**
+**Status:** FIXED — Phase 0 restructured into incremental per-slice commits (`1c4a5a7`..`8b5d1fb`: deps, CLAUDE.md, schemas, rank engine, ADR-002 fix, migrations, auth infra, `.gitignore` fix, onboarding flow, audit doc, CI, rate limiting).
+**Finding:** All of Phase 0 (auth, engine, migrations, ADRs) sat uncommitted on top of the single `Initial commit from Create Next App`.
+**Guardrail:** Land Phase 0 as incremental, reviewable commits — one per ADR or per vertical slice (matching the TDD workflow's own granularity: failing test → implementation → refactor, each committed) — rather than one giant commit. Apply this going forward for Phase 1+ too: **commit at the same granularity the TDD workflow describes, not at the end of a whole phase.** (This is the pattern subsequent audit-fix commits, e.g. S1's `8b5d1fb`, already followed.)
 
 ### D3. ADR-002 pseudocode has a known-wrong pause formula that was never corrected in the ADR
 **Status:** FIXED — `docs/adr/002-rank-streak-pause.md`'s `startPause` pseudocode now reads `today + days - 1`; the now-redundant deviation comment in `engine.ts` was trimmed to a plain reference.
