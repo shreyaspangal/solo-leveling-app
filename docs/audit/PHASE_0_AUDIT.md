@@ -91,6 +91,56 @@ This fails silently from the user's perspective: clicking "Continue with Google"
 **Finding:** Supabase's own error messages are generally safe to show, but there's no normalization layer — if a misconfigured project ever returns something more detailed, it renders unfiltered.
 **Guardrail:** No action needed now. If a future session adds a new Supabase-backed action that surfaces `error.message` to the client, sanity-check the message isn't leaking internal state (table names, stack traces) before shipping it as-is.
 
+### S10. Rate-limit store grows without bound (no eviction sweep)
+**Status:** OPEN (round-2 audit)
+**Where:** `src/lib/rate-limit.ts` — module-level `const store = new Map()`.
+**Finding:** An entry is deleted only when a *subsequent* call for that same identifier finds every timestamp aged out. An IP that makes one request and never returns keeps its entry forever — nothing sweeps expired keys on a timer or on write. The inline comment ("avoid leaking an entry per distinct IP forever") describes a mitigation that only covers returning visitors, not one-shot ones. Under Fluid Compute, instances are reused for a long time, so this accumulates across many requests rather than being cleared by frequent cold starts.
+
+Severity is bounded by the fact that an attacker cannot cheaply mint distinct keys — see the `x-forwarded-for` note under "Not flagged" — so this is organic memory growth, not a cheap remote DoS.
+**Guardrail:** Evict on write (sweep expired keys opportunistically) or bound the map size with an LRU. This disappears entirely when S1's guardrail is honoured and the store moves to Redis/KV with native TTLs — **prefer doing S1 rather than building a bespoke in-memory eviction sweep.** General rule: any process-local cache keyed by user-controlled input needs a bounded size or a TTL, not just per-entry expiry checked lazily on read.
+
+### S11. `getClientIp` falls back to a single shared `"unknown"` bucket
+**Status:** OPEN (round-2 audit)
+**Where:** `src/lib/request-ip.ts` (`return "unknown"`).
+**Finding:** When `x-forwarded-for` is absent, every caller collapses onto the identifier `"unknown"` and therefore shares **one** rate-limit bucket. In that state 5 login attempts *in total, across all users* lock out everybody — a self-inflicted denial of service rather than a protection. The header is reliably present on Vercel, so this is latent in production; it is however the normal state in local dev and in any non-Vercel environment (self-hosted, a container, a different platform, or a test harness).
+
+Related: the trust in `x-forwarded-for` is correct **only because** the deploy target is Vercel (verified — see "Not flagged"). Nothing in the repo enforces or asserts that coupling; a future move off Vercel, or putting any proxy in front, silently converts this into a spoofable rate-limit bypass with no failing test to catch it.
+**Guardrail:** Fail closed rather than merging strangers into one bucket — treat a missing IP as its own per-request identity, or skip limiting in environments where the header is legitimately absent, but never let distinct clients share a key. Prefer Vercel's own `ipAddress()` helper from `@vercel/functions` over hand-parsing the header. **General rule: a rate-limit key derived from a request header must have a defined behavior when the header is missing, and "bucket everyone together" is the one option that is always wrong.** Record the Vercel-only trust assumption as an explicit comment/assertion so a platform migration surfaces it.
+
+---
+
+## Correctness — rank engine (audit round 2, 2026-08-18)
+
+> These three were found by the review session in the round-2 audit, **immediately before the planned
+> ADR-002 addendum**. All three are ADR-002 semantics, not implementation slips — they should be
+> resolved *in* that addendum rather than patched ahead of it, since the fix requires a decision
+> about what `dailyCompletion` returning `null` is supposed to *mean*. Each was confirmed empirically
+> with a temporary probe test (since removed), not by reading alone.
+
+### C1. `rankProgress` counts a `null` completion as a miss — non-daily goals can never rank up
+**Status:** FIXED — resolved in the ADR-002 addendum (`docs/adr/002-rank-streak-pause.md` §A), not patched ahead of it. `rankProgress` now skips a `null` day (`completion !== null && completion !== 100`) instead of charging it as a miss. New tests: weekly-only 4-perfect-weeks no longer resets `window_start` (`graceUsed` stays `0`); monthly-only equivalent. Commit `f67c0c6`.
+**Where:** `src/lib/rank-engine/engine.ts` (`rankProgress`, `if (completion !== 100)`).
+**Finding:** `dailyCompletion` returns `null` for a day with nothing scheduled (weekly goal not due) *and* for a day with no active goals at all. `rankProgress` tests `completion !== 100`, and `null !== 100`, so **every such day is charged as a miss and consumes grace**. Three misses reset `window_start`, so the window resets perpetually.
+
+Proven empirically:
+- **Weekly-only user, 4 consecutive perfect weeks** (every due day 100%, nothing missed): `window_start` had reset from `2026-01-01` to `2026-01-21`, `pct` = **2%**. The six non-due days each week burn grace, so the window can never accumulate. A user whose goals are all weekly/monthly **can never progress rank at all**, no matter how perfectly they perform.
+- **Daily-goal user whose rank window predates goal creation** (window opened at setup `01-01`, first goal created `01-10`, then 11 perfect days): `window_start` reset to `2026-01-09`. The nine goal-less days were charged as misses. This is reachable through the *normal* onboarding path — ADR-003 deliberately creates the `RankWindow` at setup, before any goal exists (`src/app/setup/actions.ts`), so **every user has goal-less days at the start of their first window by construction.**
+
+This directly contradicts ADR-002's own stated intent for `dailyCompletion`: `if active_goals.empty: return null // no goals = no score, not 0%`. The `null` is produced as designed, then consumed as if it were a miss.
+**Guardrail:** Decide in the ADR-002 addendum what `null` means to each consumer, and make it explicit rather than incidental — the natural reading is that an unscheduled day is *neutral*, i.e. skipped exactly like a paused day (counts neither as hit nor miss). **General rule: a sentinel value like `null` needs its handling defined at every call site, not just at the site that produces it; `x !== 100` silently folds "nothing was due" into "you failed."** Add explicit test cases for weekly-only and monthly-only users to ADR-002's test surface — the current suite only exercises daily goals, which is why this passed 22 green tests.
+
+### C2. `streak` breaks on any day with nothing scheduled — weekly-only users cap at 1
+**Status:** FIXED — resolved alongside C1 in the same addendum (§A), same semantics: `streak` now skips a `null` day instead of ending the walk on it; a real miss still ends it. Added an explicit floor at the earliest goal's `start_date` (goals-empty short-circuits to `0`), since the walk is no longer naturally bounded by hitting a `null` day. New test: weekly-only 4-perfect-weeks now returns `streak: 4`, not `1`. All 4 pre-existing streak tests still pass unchanged. Commit `f67c0c6`.
+**Where:** `src/lib/rank-engine/engine.ts` (`streak`, loop condition `dailyCompletion(...) === 100`).
+**Finding:** Same `null` root cause as C1. The loop continues only while a day is `isPaused` or exactly `100`; a `null` day terminates it. Proven: a weekly-only user with **4 consecutive perfect weeks reports a streak of 1**, because the day before each due day is unscheduled and ends the walk. Paused days are correctly skipped without breaking the chain — unscheduled days should almost certainly behave the same way, but currently don't.
+**Guardrail:** Resolve alongside C1 in the ADR-002 addendum, with the same semantics for both functions — `streak` and `rankProgress` must agree on what an unscheduled day means, or the two numbers shown to the user will disagree with each other. Note ADR-002's pseudocode already has the pause-skip branch spelled out; the unscheduled-day branch is simply missing from the spec, not mis-implemented against it.
+
+### C3. `rankProgress.pct` is unbounded and has no completion behavior
+**Status:** FIXED (narrowly) — `pct` now clamps to `[0, 100]` and the result carries `completed: pct >= 100` (ADR-002 addendum §B). Deliberately narrow: `rankProgress` still doesn't mutate `rank_target` or create a new `RankWindow` row — full promotion mechanics (notification, history record, next-window creation) remain explicitly undecided, same as CLAUDE.md already listed, and are Phase 1 dashboard/persistence wiring, not a pure-function decision. Also floored `required_days` at 1, a defensive belt-and-suspenders guard alongside S3's schema-level protection against `rank_target: "E"`. New tests: 200-perfect-days-vs-60-day-requirement now returns `pct: 100`/`completed: true` (was `332`); an engine-reachable-but-schema-illegal `"E"` target no longer divides by zero. Commit `f67c0c6`.
+**Where:** `src/lib/rank-engine/engine.ts` (`pct: Math.round((elapsed / requiredDays) * 100)`).
+**Finding:** `pct` is never clamped. Proven: 200 perfect days against D-rank's 60-day requirement returns **`pct: 332`**. Any UI binding a progress bar to this renders past full. This is the concrete form of the gap ADR-002 lists under "Explicitly out of scope" — what happens when a `RankWindow` completes (promotion, notification, history record) — which CLAUDE.md also lists under "What's explicitly NOT decided yet."
+**Guardrail:** The ADR-002 addendum is the right place to close this, since it is the same decision as rank promotion: at minimum clamp `pct` to 100, and define whether reaching 100% auto-advances `rank_target` to the next rank, and what record that leaves. **General rule: a computed percentage crossing its own threshold is a state transition, not just a number to clamp — decide the transition, then the clamp follows from it.**
+
 ---
 
 ## Modularity
@@ -124,6 +174,12 @@ This fails silently from the user's perspective: clicking "Continue with Google"
 **Status:** OPEN (not yet relevant — no list UI exists)
 **Guardrail:** Before Phase 1's dashboard ships a goal/entry list view, decide a pagination or windowing approach up front rather than shipping an unbounded query and retrofitting later.
 
+### SC3. `rankProgress` is quadratic in window length × entry count
+**Status:** OPEN (round-2 audit — sharpens SC1 with a concrete cost)
+**Where:** `src/lib/rank-engine/engine.ts` — `rankProgress` loops day-by-day, and each iteration calls `dailyCompletion`, which runs `entries.filter(...)` over the **entire** entry array.
+**Finding:** SC1 records that the window is recomputed on every call; this is the cost of that, quantified. The work is O(days × goals × entries), and entries themselves grow with days × goals. For a late-stage S-rank window (730 days, 3 daily goals ≈ 2,190 entries) a single `rankProgress` call is on the order of **1.6M array operations** — on every dashboard render, per user. Not a problem at Phase 0 scale with zero real data, and it is genuinely invisible in the current test suite, which uses fixtures of a handful of entries.
+**Guardrail:** Index entries once per call before the loop (e.g. group into a `Map<date, GoalEntry[]>`, turning the inner scan into a lookup) rather than re-filtering the full array per day. That is a local change to the engine and does **not** compromise ADR-001's "always recomputable from raw entries" principle — it changes the access pattern, not the source of truth. Pair it with SC1's query-scoping guardrail so the data handed in is bounded too. **General rule: a pure function is not automatically a cheap one — when a loop calls a helper that scans a collection, check whether the scan can be hoisted out of the loop.**
+
 ---
 
 ## SDLC Practices
@@ -151,6 +207,26 @@ This fails silently from the user's perspective: clicking "Continue with Google"
 **Finding:** Simply running `npm run dev` produces an uncommitted modification to a tracked, human-authored file. Next.js re-adds the block if removed, so reverting it just recreates the diff on the next dev run. Surfaced during the review session as a spurious `M CLAUDE.md` that was easy to mistake for someone's edit.
 **Guardrail:** Commit the injected block once so the working tree stays clean, rather than repeatedly reverting it. **General rule: when a tool writes into a tracked file as a side effect of a normal dev command, either commit its output or ignore it deliberately — don't leave it as a permanent phantom diff that every future session has to re-investigate.**
 
+### D5. CI does not run `next build`
+**Status:** OPEN (round-2 audit)
+**Where:** `.github/workflows/ci.yml` — runs lint, `tsc --noEmit`, and `npm test`, but never builds.
+**Finding:** None of the three gates catch a build-breaking change. `next.config.ts` is not type-checked into the app graph the way route code is, route-level build errors surface only at build time, and static generation runs only during a build. This is not hypothetical for this repo: the S7/S8/S9 CSP work edited `next.config.ts` directly, and CI as configured would have gone green on a config that failed to build.
+**Guardrail:** Add a build step to CI. It needs the two `NEXT_PUBLIC_SUPABASE_*` variables present — dummy placeholder values are sufficient, since `src/lib/supabase/env.ts` only asserts they are non-empty and no network call happens at build time. **General rule: the CI gate should run every check that can fail the deploy; "lint + types + tests pass" is not the same claim as "this deploys."**
+
+### D6. CI workflow lacks least-privilege permissions and pinned actions
+**Status:** OPEN (round-2 audit, hardening)
+**Where:** `.github/workflows/ci.yml`.
+**Finding:** No `permissions:` block, so the job inherits the repository default `GITHUB_TOKEN` scope, which is broader than this workflow needs (it only reads code). Actions are referenced by mutable tag (`actions/checkout@v4`, `actions/setup-node@v4`) rather than pinned to a commit SHA, so a compromised or retagged release would execute in CI. There is also no `concurrency` group, so superseded pushes keep burning runners.
+**Guardrail:** Add `permissions: contents: read` at workflow level, pin third-party actions to full commit SHAs (with the version in a trailing comment for readability), and add a `concurrency` group keyed on the ref with `cancel-in-progress: true`. **General rule: a CI workflow is executable code with credentials — scope its token to what it actually needs and pin what it runs, the same as any dependency.**
+
+### D7. Test surfaces that the project's own docs mandate are missing
+**Status:** OPEN (round-2 audit)
+**Where:** `src/lib/` — only `rank-engine/engine.test.ts` and `rate-limit.test.ts` exist.
+**Finding:** Two explicitly-required test surfaces have no tests at all:
+- **Zod schema validation.** CLAUDE.md's TDD workflow names it directly: *"write failing tests first (Zod schema validation, streak-calc, rank-window logic...)"*. `src/lib/schemas/*.ts` has zero tests — including the `targetDate >= startDate` refinement, the paired-null pause refinement, and S3's `rankTargetSchema`/DB-constraint alignment, which is exactly the kind of drift a test would pin.
+- **RLS isolation.** ADR-003's test surface is unambiguous: *"user A cannot select/update/delete user B's goals, entries, or rank window, even with a directly-crafted query — test against the real database, not mocked."* Nothing covers this. RLS is the actual security boundary of the whole app (ADR-003 chose it precisely because app-layer filtering is easy for an agent to get wrong), and it is currently asserted only by reading the migration SQL — including by this audit.
+**Guardrail:** Treat a documented test surface as part of the definition of done for the slice that introduces it. RLS tests need a running local Supabase (`supabase start`) and two real users, so they will not fit the current pure-unit `vitest` setup — decide whether they run as a separate integration project/command and wire that into CI, rather than deferring indefinitely. **General rule: when an ADR specifies a test surface, the slice implementing that ADR is not done until those tests exist or the ADR is amended to drop them — otherwise the ADR quietly becomes aspirational.**
+
 ---
 
 ## Not flagged (checked, confirmed fine — recorded so it isn't re-audited from scratch)
@@ -168,6 +244,15 @@ This fails silently from the user's perspective: clicking "Continue with Google"
 - `.env.local` does not exist on disk and is correctly matched by `.gitignore`'s `.env*`.
 - `supabase/config.toml` is safe to commit: every secret slot uses `env(...)` substitution (e.g. `auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"`), zero literal credentials.
 - Build, `tsc --noEmit`, `eslint`, and `vitest` (16/16) all green at the time of review.
+
+**Round-2 audit re-verification (2026-08-18), after Supabase project linking, S1/S5 and the CSP work:**
+- **Secret sweep still clean** across all commits and the working tree — no JWT-shaped strings, `sb_secret`, `SUPABASE_SERVICE_ROLE`, `sk-…`, PEM headers, or `postgres://` connection strings.
+- **`supabase/.temp/` is correctly ignored** — including `pooler-url`, `linked-project.json`, and `project-ref`, which appeared once a real project was linked. Verified with `git check-ignore`, and `git ls-files supabase/` lists only `.gitignore`, `config.toml`, and the two migrations.
+- **`.env.local` now exists on disk** (real project credentials) and is correctly ignored. It contains only `NEXT_PUBLIC_*` variables — no service-role key. The anon key being public is correct by design: RLS is the boundary (ADR-003), not key secrecy.
+- **No service-role key is referenced anywhere in `src/`.**
+- `AGENTS.md` (written by the Vercel CLI at login, committed in `bc77048`) is generic platform guidance — no project identifiers or secrets.
+- **`x-forwarded-for` trust in `src/lib/request-ip.ts` is CORRECT on Vercel — not a spoofing hole.** This was checked against Vercel's docs rather than assumed: *"Vercel overwrites this header and does not forward external IPs to prevent spoofing, unless a trusted proxy is enabled for Enterprise customers."* The leftmost-value `split(",")[0]` read is therefore safe **on this deploy target specifically**. The general web-security instinct here ("XFF is client-controlled, so the leftmost entry is spoofable") is right in most deployments and wrong on Vercel — worth recording so a future audit does not re-flag it, and so the platform dependency is visible if the target ever changes (see S11).
+- Build, `tsc --noEmit`, `eslint`, and `vitest` (22/22) all green from the clean committed state.
 
 ---
 
