@@ -208,10 +208,10 @@ This directly contradicts ADR-002's own stated intent for `dailyCompletion`: `if
 **Guardrail:** Commit the injected block once so the working tree stays clean, rather than repeatedly reverting it. **General rule: when a tool writes into a tracked file as a side effect of a normal dev command, either commit its output or ignore it deliberately — don't leave it as a permanent phantom diff that every future session has to re-investigate.**
 
 ### D5. CI does not run `next build`
-**Status:** OPEN (round-2 audit)
-**Where:** `.github/workflows/ci.yml` — runs lint, `tsc --noEmit`, and `npm test`, but never builds.
-**Finding:** None of the three gates catch a build-breaking change. `next.config.ts` is not type-checked into the app graph the way route code is, route-level build errors surface only at build time, and static generation runs only during a build. This is not hypothetical for this repo: the S7/S8/S9 CSP work edited `next.config.ts` directly, and CI as configured would have gone green on a config that failed to build.
-**Guardrail:** Add a build step to CI. It needs the two `NEXT_PUBLIC_SUPABASE_*` variables present — dummy placeholder values are sufficient, since `src/lib/supabase/env.ts` only asserts they are non-empty and no network call happens at build time. **General rule: the CI gate should run every check that can fail the deploy; "lint + types + tests pass" is not the same claim as "this deploys."**
+**Status:** FIXED — added a `Build` step at the end of `.github/workflows/ci.yml` with placeholder `NEXT_PUBLIC_SUPABASE_*` env values. Commit `314d53d`.
+**Where:** `.github/workflows/ci.yml`.
+**Finding, and a bigger one found while fixing it:** None of lint/typecheck/test caught a build-breaking change — not hypothetical, since the S7/S8/S9 CSP work edited `next.config.ts` directly. But pushing this session's commits surfaced something worse: **every CI run since the repo was created had failed**, all on `tsc --noEmit` alone — `LayoutProps` (a Next.js-generated route/layout type) doesn't exist until `next build` or `next dev` has run at least once, and a fresh CI checkout has neither. D1's "CI pipeline exists" was true; "CI pipeline has ever passed" was not, and nothing surfaced that gap because nobody was watching the Actions tab on a repo with no remote until this session.
+**Guardrail:** Fixed with `next typegen` (generates just the types, no full build) as a step before `tsc --noEmit`, plus the `next build` step this finding originally asked for. **General rule: adding a CI workflow is not the same claim as "CI passes" — check the Actions tab (or `gh run list`) after the first real push, not just that the YAML is syntactically valid.** This is the same lesson as S7 in different clothing: a thing that is present and looks correct can still not work end-to-end.
 
 ### D6. CI workflow lacks least-privilege permissions and pinned actions
 **Status:** OPEN (round-2 audit, hardening)
