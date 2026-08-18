@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 import { signInWithOAuth } from "@/lib/supabase/oauth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,6 +16,17 @@ export async function logInWithEmail(
   _prevState: { error: string | null },
   formData: FormData,
 ): Promise<{ error: string | null }> {
+  const ip = await getClientIp();
+  const { limited, resetAt } = checkRateLimit(`login:${ip}`, {
+    limit: 5,
+    windowMs: 60_000,
+  });
+  if (limited) {
+    console.warn(`[rate-limit] login blocked for ip=${ip}`);
+    const retryInSeconds = Math.ceil((resetAt - Date.now()) / 1000);
+    return { error: `Too many login attempts. Try again in ${retryInSeconds}s.` };
+  }
+
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),

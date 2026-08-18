@@ -18,10 +18,10 @@ even after the specific instance is resolved.
 ## Security
 
 ### S1. No rate limiting on `login`/`signup` server actions
-**Status:** OPEN
-**Where:** `src/app/login/actions.ts`, `src/app/signup/actions.ts`
-**Finding:** Both actions call Supabase directly with no app-layer throttling. Brute-force/credential-stuffing protection currently relies entirely on Supabase's own rate limits, which are local-dev defaults (`supabase/config.toml`), not verified production values.
-**Guardrail:** Before any auth action ships past Phase 0, run it through the `api-rate-limiting` skill and confirm production Supabase rate-limit values explicitly (don't assume local `config.toml` defaults carry over). Any new server action that accepts credentials or triggers an email/SMS send gets the same check.
+**Status:** PARTIALLY FIXED — app-layer throttling added; production-scale storage still OPEN.
+**Where:** `src/lib/rate-limit.ts` (sliding-window limiter, TDD, 6 tests), `src/lib/request-ip.ts` (IP extraction via `x-forwarded-for`, trusted because Vercel sets it at the edge), wired into `logInWithEmail` (5/min/IP) and `signUpWithEmail` (3/min/IP) via the `api-rate-limiting` skill.
+**Finding:** The limiter's store is an in-memory `Map`, scoped to one server process. On Vercel's serverless runtime, a given IP's requests can land on different instances, so this bounds abuse within a warm instance but does **not** enforce a true global limit across a multi-instance production deployment. OAuth (Google/Apple) paths are intentionally not throttled here -- they redirect out to the provider immediately, which is the actual brute-force chokepoint.
+**Guardrail:** Before this app takes real production traffic, swap `rate-limit.ts`'s in-memory store for Vercel KV / Upstash Redis (both fit a Vercel deploy target, per the `api-rate-limiting` skill's storage-backend guidance) -- the `checkRateLimit`/`resetRateLimitStore` call sites don't need to change, only the store implementation. Any new server action that accepts credentials or triggers an email/SMS send gets rate-limited the same way, through the same utility, not a copy of the logic.
 
 ### S2. No security headers configured
 **Status:** OPEN

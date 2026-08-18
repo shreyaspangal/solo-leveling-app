@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 import { signInWithOAuth } from "@/lib/supabase/oauth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,6 +17,17 @@ export async function signUpWithEmail(
   _prevState: { error: string | null },
   formData: FormData,
 ): Promise<{ error: string | null }> {
+  const ip = await getClientIp();
+  const { limited, resetAt } = checkRateLimit(`signup:${ip}`, {
+    limit: 3,
+    windowMs: 60_000,
+  });
+  if (limited) {
+    console.warn(`[rate-limit] signup blocked for ip=${ip}`);
+    const retryInSeconds = Math.ceil((resetAt - Date.now()) / 1000);
+    return { error: `Too many signup attempts. Try again in ${retryInSeconds}s.` };
+  }
+
   const parsed = signUpSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
