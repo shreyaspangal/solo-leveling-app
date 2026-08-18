@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { domainOptions } from "@/lib/domains";
 import { createClient } from "@/lib/supabase/server";
-import { completeSetup } from "./actions";
+import { SetupForm } from "./setup-form";
 
 // PRD "5. First-Time Setup": choose which areas to track. Per ADR-002, which
 // domains a user "opted into" is implied by which goals they create, not a
@@ -52,14 +52,7 @@ export default async function SetupPage() {
           ))}
         </ul>
 
-        <form action={completeSetup}>
-          <button
-            type="submit"
-            className="mt-8 inline-flex h-12 w-full items-center justify-center rounded-full bg-foreground px-6 font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-          >
-            Continue
-          </button>
-        </form>
+        <SetupForm />
       </div>
     </div>
   );

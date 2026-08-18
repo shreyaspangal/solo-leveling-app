@@ -2,11 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { todayInTimezone } from "@/lib/today";
 
 // ADR-003: the first RankWindow row is created here, at the end of setup —
 // not at signup — so an account that abandons onboarding mid-flow has no
 // rank tracking yet. Rank always starts as the E -> D climb.
-export async function completeSetup() {
+export async function completeSetup(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,7 +17,17 @@ export async function completeSetup() {
     redirect("/login");
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // ADR-006: captured client-side (the server can't know the user's
+  // timezone), stored once so every future "what is today for this user"
+  // computation -- including this window's own window_start -- uses it
+  // instead of the server's UTC clock.
+  const timezoneEntry = formData.get("timezone");
+  const timezone = typeof timezoneEntry === "string" && timezoneEntry ? timezoneEntry : undefined;
+  if (timezone) {
+    await supabase.auth.updateUser({ data: { timezone } });
+  }
+
+  const today = todayInTimezone(timezone);
 
   const { error } = await supabase.from("rank_windows").upsert(
     {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { createQuest } from "../actions";
 
 const SUGGESTED_CATEGORIES = [
@@ -18,7 +18,22 @@ const SUGGESTED_CATEGORIES = [
 
 export function NewQuestForm() {
   const [state, formAction, pending] = useActionState(createQuest, { error: null });
-  const today = new Date().toISOString().slice(0, 10);
+
+  // ADR-006: the user's local day, not UTC -- computed after mount (not
+  // during render) so SSR's initial HTML never guesses at a value only the
+  // browser actually knows, which would risk a hydration mismatch if the
+  // server process's own timezone/moment disagreed. Empty until then, so
+  // the field starts blank rather than momentarily showing a wrong date.
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    // Genuinely a client-only value (the browser's own local day) with no
+    // way to derive it safely during the render that SSR and hydration
+    // both run -- a lazy useState initializer would re-execute on the
+    // client during hydration and could disagree with the server-rendered
+    // value, which is the mismatch this pattern exists to avoid.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setToday(new Date().toLocaleDateString("en-CA"));
+  }, []);
 
   return (
     <form action={formAction} className="mt-6 space-y-3">
@@ -86,7 +101,8 @@ export function NewQuestForm() {
         name="startDate"
         type="date"
         required
-        defaultValue={today}
+        value={today}
+        onChange={(e) => setToday(e.target.value)}
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
       />
 
