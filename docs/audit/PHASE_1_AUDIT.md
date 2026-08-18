@@ -35,7 +35,7 @@ re-verified) · findings themselves get their own `###` entries below, same as P
 
 | # | Slice | Status |
 |---|---|---|
-| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | PENDING |
+| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | AWAITING REVIEW |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | PENDING |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
