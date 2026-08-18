@@ -21,8 +21,28 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `tsc --noEmit` alone needs Next.js's generated route/layout types
+      # (LayoutProps etc.), which only exist after `next build` or `next
+      # dev` has run at least once -- a fresh checkout has neither. `next
+      # typegen` generates just those types without a full build, so this
+      # step can stay fast. Every CI run failed on this before it existed.
+      - name: Generate Next.js types
+        run: npx next typegen
+
       - name: Typecheck
         run: npx tsc --noEmit
 
       - name: Test
         run: npm test
+
+      # Catches what lint/typecheck/test don't: build-breaking next.config.ts
+      # changes, route conflicts, static generation errors (audit finding
+      # D5) -- concretely, this would have caught a bad CSP directive syntax
+      # in the S7/S8/S9 config work if there'd been one. Dummy values are
+      # sufficient: env.ts only asserts these are non-empty, no network call
+      # happens at build time.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
