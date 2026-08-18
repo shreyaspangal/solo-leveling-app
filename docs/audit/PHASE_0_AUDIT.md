@@ -181,3 +181,14 @@ Work on this project runs across two Claude sessions with deliberately separate 
 - **Review session** — owns *findings only*. It adds new entries (Finding + Guardrail + evidence) and appends **Review note** lines to existing entries, but does **not** fix code and does **not** flip Status to `FIXED`. Its job is to independently verify claims rather than accept them, per CLAUDE.md's "review and pressure-test agent-written code before merging — don't accept on trust."
 
 Practical consequence: an item marked `FIXED` means *implemented*, not *verified*. A separate **Review note** on the entry is what records independent verification — and, as S7/S8/S9 showed (a correctly-present CSP header that still broke the OAuth flow), "implemented" and "actually works end-to-end" are not the same claim.
+
+### Concurrency: when to touch shared state, not just who
+
+The role split above says *who* writes what. It says nothing about *when*, and that gap is real: the S7/S8/S9 round landed safely only because the two sessions happened to edit different regions of this file — Status lines vs. Review notes below them. That was luck. If both had rewritten the same entry, one edit would have silently clobbered the other, and a tool reporting "the edit applied cleanly" only confirms *your* write landed, not that the other session's content survived it.
+
+- **The review session waits for an explicit "done" signal from the implementation session before editing shared files or running builds.** A file changing (e.g. `next.config.ts`) means work *started*, not finished — don't treat a watched file's mtime as a completion signal.
+- **The implementation session sends that signal when a coherent unit is finished and committed.** Committed, not just saved — a commit is the unambiguous handoff point and gives the reviewer a stable state to verify against instead of a moving target.
+- **Neither session runs destructive or shared-state commands — `rm -rf .next`, rebuilds, dev servers on shared ports — while the other holds the work.** These clobber build caches and generated types out from under whoever is mid-verification (this happened: a review session's `rm -rf .next` plus a leftover probe route left stale generated types that surfaced as spurious `tsc` failures in `src/app/csptest/*`, attributable to the wrong session if not traced back).
+- **If a session must touch a shared file it doesn't own for the task at hand, it re-reads immediately before editing, and verifies afterward that the other session's content is still intact** — not just that its own edit applied.
+
+**General rule:** two agents editing the same file concurrently is not made safe by them happening to edit different regions of it — that's luck, not a guarantee. Serialize on an explicit handoff (commit = done), and verify the merge afterward rather than assuming a clean apply.
