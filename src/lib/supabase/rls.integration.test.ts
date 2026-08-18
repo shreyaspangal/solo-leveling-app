@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { type SupabaseClient, createClient } from "@supabase/supabase-js";
 import { beforeAll, describe, expect, it } from "vitest";
+import { isLocalSupabaseUrl } from "./local-url-guard";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -19,8 +20,11 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 // These tests create throwaway users and never clean them up, relying on
 // the instance being fully disposable (`supabase start` / `supabase stop`).
 // Refuse to run against anything else -- accidentally pointing this at the
-// real linked project would litter it with test accounts.
-if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(SUPABASE_URL)) {
+// real linked project would litter it with test accounts. See
+// local-url-guard.ts / local-url-guard.test.ts for the guard itself and its
+// audit-D8 regression tests, which run in the fast unit suite (this file
+// can't -- it needs Docker).
+if (!isLocalSupabaseUrl(SUPABASE_URL)) {
   throw new Error(
     `Refusing to run RLS integration tests against a non-local Supabase URL: ${SUPABASE_URL}. ` +
       "Run `supabase start` and point NEXT_PUBLIC_SUPABASE_URL at the local instance first.",
