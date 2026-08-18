@@ -46,3 +46,34 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+  # RLS isolation tests (ADR-003, audit finding D7). Separate job, not a step
+  # in `check`: these need a real local Postgres+Auth stack (`supabase
+  # start`, which needs Docker -- present on ubuntu-latest runners by
+  # default) rather than the fast pure-unit suite's node environment.
+  rls-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Start local Supabase
+        run: npx supabase start
+
+      # api.url/auth.anon_key are local-only values regenerated fresh by
+      # `supabase start` -- never the real linked project's credentials.
+      - name: Export local Supabase env vars
+        run: |
+          npx supabase status -o env \
+            --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
+            --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            >> "$GITHUB_ENV"
+
+      - name: RLS isolation tests
+        run: npm run test:rls
