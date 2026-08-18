@@ -372,6 +372,31 @@ describe("personalDevelopmentScore", () => {
 
     expect(personalDevelopmentScore([weekly], entries, window, today)).toBe(expected);
   });
+
+  it("scores 0 for a zero-goal account instead of a 20-point daily-component floor (audit C5)", () => {
+    // Before this fix: daily ?? 100 didn't distinguish "no active goals" from
+    // "goals active, nothing due," so a zero-goal account (rank 0, streak 0)
+    // still scored 20 (0.2 * 100) -- a nonzero "Overall development score"
+    // for an account that has never created a goal.
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    expect(personalDevelopmentScore([], [], window, "2026-06-10")).toBe(0);
+  });
+
+  it("renormalizes over rank+streak once a goal expires, instead of keeping a 20-point daily floor (audit C5)", () => {
+    const goal = dailyGoal("g1", { startDate: "2026-01-01", targetDate: "2026-01-10" });
+    const entries = datesFrom("2026-01-01", 10).map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const today = "2026-06-10";
+
+    const rank = rankProgress([goal], entries, window, today);
+    const streakComponent = Math.min(
+      (streak([goal], entries, window, today) / 30) * 100,
+      100,
+    );
+    const expected = Math.round((0.5 * rank.pct + 0.3 * streakComponent) / 0.8);
+
+    expect(personalDevelopmentScore([goal], entries, window, today)).toBe(expected);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -206,14 +206,28 @@ export function personalDevelopmentScore(
   window: RankWindow,
   today: string,
 ): number {
-  const daily = dailyCompletion(goals, entries, today);
-  const dailyComponent = daily ?? 100; // unscheduled today is neutral, not a drag
-
   const rankComponent = rankProgress(goals, entries, window, today).pct;
   const streakComponent = Math.min(
     (streak(goals, entries, window, today) / PDS_STREAK_NORMALIZATION_DAYS) * 100,
     100,
   );
+
+  // No active goals at all today -- nothing to score for "daily," excluded
+  // rather than defaulted to 0 or 100 (audit finding C5, the same
+  // dailyCompletion-null conflation C4 fixed in rankProgress/streak, missed
+  // here). "?? 100" is correct for goals-active-nothing-due; it isn't for
+  // nothing-ever-active. Renormalize over rank+streak instead of guessing a
+  // number for a component that has no basis to score. ADR-002 addendum §C.
+  if (activeGoalsOn(goals, today).length === 0) {
+    const remainingWeight = PDS_WEIGHTS.rank + PDS_WEIGHTS.streak;
+    return Math.round(
+      (PDS_WEIGHTS.rank * rankComponent + PDS_WEIGHTS.streak * streakComponent) /
+        remainingWeight,
+    );
+  }
+
+  const daily = dailyCompletion(goals, entries, today);
+  const dailyComponent = daily ?? 100; // goals active, nothing due -- neutral, not a drag
 
   return Math.round(
     PDS_WEIGHTS.rank * rankComponent +

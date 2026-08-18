@@ -215,9 +215,6 @@ three — never a fourth code path that recomputes their logic.
 
 ```
 personalDevelopmentScore(user, today):
-  daily = dailyCompletion(user, today)
-  daily_component = daily is null ? 100 : daily    // unscheduled today is neutral, not a drag,
-                                                     // same rule as section A
   rank_component = rankProgress(user).pct           // already clamped 0-100
   streak_component = min(streak(user, today) / 30, 1) * 100
     // Normalized against 30 days, not against the rank requirement (60-730
@@ -226,8 +223,27 @@ personalDevelopmentScore(user, today):
     // 30 days is a legible, self-contained "a month of consistency is full
     // marks on this component."
 
+  if activeGoalsOn(user, today).empty:
+    // Audit finding C5: nothing to score for "daily" -- excluded, not
+    // defaulted to 0 or 100, same "no goals = no score" principle as
+    // dailyCompletion itself. Renormalize over the remaining weights.
+    return round((0.5 * rank_component + 0.3 * streak_component) / 0.8)
+
+  daily = dailyCompletion(user, today)
+  daily_component = daily is null ? 100 : daily    // goals active, nothing due -- neutral,
+                                                     // not a drag, same rule as section A
+
   return round(0.5 * rank_component + 0.3 * streak_component + 0.2 * daily_component)
 ```
+
+**Update (2026-08-18, round-4 review, finding C5):** the first version of this function had the
+exact conflation §D describes, in the one call site C4's fix didn't reach. `daily ?? 100`
+correctly handles "goals active, nothing due" but was also applied to "no active goals at all,"
+giving a zero-goal or all-goals-expired account a 20-point floor (`0.2 * 100`) on the whole score
+regardless of `rank_component`/`streak_component`. Fixed the same way as §D: check
+`activeGoalsOn` directly and exclude the daily term (renormalizing the remaining weights) rather
+than guessing a number for a component with no basis to score, instead of defaulting to 0 (which
+would double-penalize what rank/streak already reflect) or 100 (the original bug).
 
 Weights (50% rank / 30% streak / 20% daily) favor the long-horizon signal, matching CLAUDE.md's core
 hypothesis that rank+streak on a plain interface is the thing being tested — today's completion is
@@ -289,6 +305,8 @@ as one.
   freezes at the genuinely-qualifying days once a goal expires, rather than continuing to climb.
 - `streak`: breaks (returns to the caller, doesn't skip past) a date with no active goals at all,
   so a long-dormant account doesn't surface a stale streak from months-old history.
+- `personalDevelopmentScore`: a zero-goal account scores `0`, not the `0.2 * 100 = 20` daily-term
+  floor; an all-goals-expired account renormalizes over rank+streak only.
 
 ## Test surface (write before implementation)
 
