@@ -6,7 +6,7 @@
 // testable without a live database, and keeps the streak "always recomputable
 // from raw entries" per ADR-001's rationale for not storing running counters.
 
-import { addDays, dayOfMonth, dayOfWeek, daysBetween } from "./date-utils";
+import { addDays, dayOfMonth, dayOfWeek } from "./date-utils";
 import type { Goal, GoalEntry, Rank, RankWindow } from "./types";
 
 // PRD rank-up durations, expressed in days. rank_target is the rank the user
@@ -44,14 +44,23 @@ export function scheduledOn(goal: Goal, date: string): boolean {
   }
 }
 
+// Goals active on `date` (started, not yet past their targetDate). Shared
+// by dailyCompletion, streak, and rankProgress -- audit finding C4 was
+// exactly this predicate drifting out of sync between callers (rankProgress
+// checked completion === null instead of asking this directly, conflating
+// "no active goals" with "goals active but nothing due").
+function activeGoalsOn(goals: Goal[], date: string): Goal[] {
+  return goals.filter(
+    (g) => g.startDate <= date && (g.targetDate === null || g.targetDate >= date),
+  );
+}
+
 export function dailyCompletion(
   goals: Goal[],
   entries: GoalEntry[],
   date: string,
 ): number | null {
-  const activeGoals = goals.filter(
-    (g) => g.startDate <= date && (g.targetDate === null || g.targetDate >= date),
-  );
+  const activeGoals = activeGoalsOn(goals, date);
   if (activeGoals.length === 0) return null;
 
   const expected = activeGoals.filter((g) => scheduledOn(g, date));
@@ -99,10 +108,21 @@ export function streak(
       check = addDays(check, -1);
       continue;
     }
+    if (activeGoalsOn(goals, check).length === 0) {
+      // No active goals at all that day -- not a rest day (goals exist,
+      // just not due), a day with nothing to be consistent about. Breaks
+      // the chain rather than being skipped like a genuinely unscheduled
+      // day: silently walking through a goal-less gap to older history
+      // would report a "streak" for a user who hasn't touched the app in
+      // months (audit finding C4's counterpart in streak). ADR-002
+      // addendum §D.
+      break;
+    }
     const completion = dailyCompletion(goals, entries, check);
     if (completion === null) {
-      // Unscheduled day -- neutral, same treatment as a paused day: doesn't
-      // extend the streak, doesn't break it either. ADR-002 addendum §A.
+      // Goals active, nothing due today -- neutral, same treatment as a
+      // paused day: doesn't extend the streak, doesn't break it either.
+      // ADR-002 addendum §A.
       check = addDays(check, -1);
       continue;
     }
@@ -128,12 +148,23 @@ export function rankProgress(
 ): RankProgressResult {
   const w: RankWindow = { ...window };
 
+  // Count of days that actually had an active goal, not raw calendar days
+  // since window_start (audit finding C4): a zero-goal or all-goals-expired
+  // account was climbing on the calendar alone, since a goal-less day
+  // consumed no grace (correctly) but still counted as elapsed (the bug).
+  // Reset alongside window_start on a 3rd-miss reset, same as grace.
+  // ADR-002 addendum §D.
+  let qualifyingDays = 0;
+
   let date = w.windowStart;
   while (date <= today) {
-    if (!isPaused(w, date)) {
+    if (!isPaused(w, date) && activeGoalsOn(goals, date).length > 0) {
+      qualifyingDays += 1;
       const completion = dailyCompletion(goals, entries, date);
-      // Unscheduled day -- neutral, same treatment as a paused day: doesn't
-      // consume grace. ADR-002 addendum §A.
+      // Unscheduled day (goals active, nothing due) -- neutral, same
+      // treatment as a paused day: doesn't consume grace. ADR-002 addendum
+      // §A. (completion can't be null here -- activeGoalsOn is non-empty --
+      // but dailyCompletion can still return null if nothing is due today.)
       if (completion !== null && completion !== 100) {
         w.graceUsed += 1;
         if (w.graceUsed > 2) {
@@ -141,6 +172,7 @@ export function rankProgress(
           // dropping the user back a rank (ADR-002).
           w.windowStart = date;
           w.graceUsed = 0;
+          qualifyingDays = 0;
         }
       }
     }
@@ -151,8 +183,7 @@ export function rankProgress(
   // zero -- "E" is schema-illegal as a rank_target (S3) but this is a pure
   // function with no schema in front of it. ADR-002 addendum §B.
   const requiredDays = Math.max(1, RANK_REQUIREMENT_DAYS[w.rankTarget]);
-  const elapsed = daysBetween(w.windowStart, today);
-  const pct = Math.min(100, Math.max(0, Math.round((elapsed / requiredDays) * 100)));
+  const pct = Math.min(100, Math.max(0, Math.round((qualifyingDays / requiredDays) * 100)));
 
   return {
     pct,

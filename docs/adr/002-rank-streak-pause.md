@@ -107,6 +107,16 @@ every few days and a streak that capped at 1, and — worse — this is reachabl
 onboarding path, since ADR-003 creates the `RankWindow` at setup before any goal exists, so every
 user starts their first window with goal-less days by construction.
 
+**Update (2026-08-18, round-3 review, finding C4):** the first version of this addendum introduced
+a new bug of the same shape it was fixing. It correctly said a `null` day should be neutral, but
+`dailyCompletion` returns `null` for two structurally different situations — "goals exist, none
+scheduled today" (a genuine rest day) and "no active goals at all" (nothing to be consistent
+about) — and treated both identically. A zero-goal or all-goals-expired account then consumed no
+grace *and* kept counting elapsed calendar time, so `pct` climbed to 100%/`completed: true` on the
+calendar alone. §D below is the fix; §A and §B are updated in place to match rather than left
+describing the superseded version, per this ADR's own D3 guardrail about not leaving stale
+pseudocode for a future session to trust over the code.
+
 ### A. Unscheduled days are neutral, everywhere — not just in `dailyCompletion`
 
 The original text above already says it for the producer side: *"no goals = no score, not 0%."*
@@ -117,21 +127,24 @@ contradict each other for the same user.
 
 ```
 streak(user, upto_date):
-  if dailyCompletion(user, upto_date) != 100:     // unchanged: "today" is soft either way
+  if goals(user).empty: return 0                   // no walk to bound
+  if dailyCompletion(user, upto_date) != 100:       // unchanged: "today" is soft either way
     check = upto_date - 1
   else:
     check = upto_date
   n = 0
-  while check >= earliest_goal_start_date:        // NEW: explicit floor, see below
+  while check >= earliest_goal_start_date:          // explicit floor, see below
     if isPaused(user, check):
       check -= 1
       continue
+    if activeGoalsOn(user, check).empty:            // §D: no active goals at all -- breaks
+      break                                          // the chain, not skipped like a rest day
     completion = dailyCompletion(user, check)
-    if completion is null:                        // NEW: unscheduled, same as paused
+    if completion is null:                          // goals active, nothing due -- neutral
       check -= 1
       continue
     if completion != 100:
-      break                                        // a real miss still ends the streak
+      break                                          // a real miss still ends the streak
     n += 1
     check -= 1
   return n
@@ -149,28 +162,37 @@ this ADR). If `goals` is empty, return `0` immediately — there is no walk to b
 ```
 rankProgress(user):
   window = RankWindow.current(user)
+  qualifying_days = 0                               // §D: counts days with an active goal,
+                                                       // not raw calendar days
   for date in window.window_start .. today:
     if isPaused(user, date): continue
+    if activeGoalsOn(user, date).empty: continue    // §D: nothing to be consistent about --
+                                                       // doesn't consume grace, doesn't count
+                                                       // as elapsed either
+    qualifying_days += 1
     completion = dailyCompletion(user, date)
-    if completion is null: continue                // NEW: unscheduled, same as paused
+    if completion is null: continue                 // goals active, nothing due -- neutral
     if completion != 100:
       window.grace_used += 1
       if window.grace_used > 2:
         window.window_start = date
         window.grace_used = 0
+        qualifying_days = 0                          // resets alongside the window
   ...
 ```
 
 `rankProgress`'s own walk is already forward-bounded (`window_start .. today`), so it needs no new
-floor — only the added `if completion is null: continue` line.
+floor.
 
 ### B. `pct` is clamped, and completion is a signal, not a mutation
 
 `pct` was never bounded: 200 perfect days against D-rank's 60-day requirement returned `pct: 332`.
-Fixed to `pct: clamp(round(elapsed / required_days * 100), 0, 100)`, with a `required_days` floor of
-1 (defensive — `RANK_REQUIREMENT_DAYS["E"]` is `0`, and while S3 already made the Zod schema reject
-an `"E"` `rank_target`, `rankProgress` is a pure function with no schema in front of it, so it
-shouldn't divide by zero if ever called with one directly, e.g. from a test or future caller).
+Fixed to `pct: clamp(round(qualifying_days / required_days * 100), 0, 100)` (see §D for
+`qualifying_days`, which itself replaced a raw calendar-days `elapsed` calculation that caused
+finding C4), with a `required_days` floor of 1 (defensive — `RANK_REQUIREMENT_DAYS["E"]` is `0`,
+and while S3 already made the Zod schema reject an `"E"` `rank_target`, `rankProgress` is a pure
+function with no schema in front of it, so it shouldn't divide by zero if ever called with one
+directly, e.g. from a test or future caller).
 
 `rankProgress` now also returns `completed: pct >= 100`. This is a **signal, not a mutation** —
 `rankProgress` still does not write anything, does not advance `rank_target`, and does not create a
@@ -214,6 +236,45 @@ the score from swinging on any given day. These weights are a first version, not
 contract; revisit once Phase 1 usage data exists, same as everything else this build is testing
 cheaply before investing further.
 
+### D. `null` has two causes, and only one of them is neutral (audit finding C4)
+
+§A's fix made every function that walks a date range treat a `null` `dailyCompletion` as neutral —
+skipped, no hit, no miss. That's correct for "goals exist, nothing scheduled today," which is a
+genuine rest day for a user actively enrolled in a weekly/monthly goal. It's wrong for "no active
+goals exist at all that day," which `dailyCompletion` also reports as `null` (same sentinel, two
+different causes) — there, the user isn't resting between scheduled days, there's nothing running
+to be consistent (or inconsistent) with.
+
+Collapsing both into "skip, no grace consumed" meant a zero-goal account (or one whose only goal's
+`target_date` has passed) never triggered a window reset — nothing ever counted as a miss — while
+`pct`'s calendar-based `elapsed` kept climbing regardless. Proven empirically: a brand-new
+zero-goal account (the state every user is in immediately after setup, per ADR-003) reached `pct:
+100`, `completed: true` after 61 days of doing nothing. An account whose only goal expired months
+ago climbed the same way. The state that should score *worse* — an active goal being neglected —
+already scored correctly (`0%`, real grace consumed, real resets), which is what made the zero-goal
+case's silently-better outcome a clear bug rather than a judgment call.
+
+The fix: distinguish the two causes at each call site by asking directly whether any goal is active
+on that date (`activeGoalsOn`, the same predicate `dailyCompletion` already filters with
+internally), rather than trying to infer the cause from the single `null` value:
+
+- **No active goals on a date** → doesn't consume grace (unchanged) **and doesn't count as
+  elapsed/qualifying time either** (new). In `rankProgress`, `pct` is now `qualifying_days /
+  required_days`, where `qualifying_days` only increments on a date with at least one active goal
+  — not raw calendar days since `window_start`. A goal-less stretch anywhere in the window (leading,
+  trailing, or in the middle) simply doesn't advance `pct`; it doesn't retroactively erase progress
+  already counted before it, either, since `qualifying_days` is a monotonic counter, only reset by
+  an actual 3rd-miss event. In `streak`, the equivalent is stronger: a goal-less date **breaks** the
+  walk rather than being skipped, so a long-dormant account doesn't silently surface a streak from
+  months-old history the moment a new goal is created.
+- **Goals active, nothing scheduled that date** → unchanged from §A: skip, neutral, exactly like a
+  paused day.
+
+General guardrail from this round: **when a fix makes a sentinel value "neutral," check every case
+that can produce it, not just the one that motivated the fix.** C1 was `null` misread as failure;
+C4 was the same `null`, now misread as success, because two different producers of it were treated
+as one.
+
 ### Test surface additions
 
 - `streak`/`rankProgress`: weekly-only and monthly-only goals across several due/not-due cycles —
@@ -224,6 +285,10 @@ cheaply before investing further.
   reaches 100; a `rank_target` of `"E"` (schema-illegal but engine-reachable) doesn't divide by zero.
 - `personalDevelopmentScore`: matches the weighted formula given each component's real output; an
   unscheduled "today" does not drag the score down.
+- `rankProgress`: a zero-goal account's `pct` stays `0` regardless of elapsed calendar time; `pct`
+  freezes at the genuinely-qualifying days once a goal expires, rather than continuing to climb.
+- `streak`: breaks (returns to the caller, doesn't skip past) a date with no active goals at all,
+  so a long-dormant account doesn't surface a stale streak from months-old history.
 
 ## Test surface (write before implementation)
 

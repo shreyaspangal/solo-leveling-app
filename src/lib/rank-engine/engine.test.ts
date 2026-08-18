@@ -187,6 +187,18 @@ describe("streak", () => {
     // except this early return -- without it, this call would hang.
     expect(streak([], [], freshWindow(), "2026-06-01")).toBe(0);
   });
+
+  it("breaks at a goal-less gap instead of reporting stale history as a current streak (audit C4)", () => {
+    // Goal was perfect for 10 days, then expired. 5 months later, "today"
+    // has zero active goals. Before this fix, a goal-less day was treated
+    // identically to "goals active, nothing due" (skip, don't break), so
+    // the walk would silently pass through the 5-month gap and report the
+    // stale 10-day streak from back when the goal was still active.
+    const goal = dailyGoal("g1", { startDate: "2026-01-01", targetDate: "2026-01-10" });
+    const entries = datesFrom("2026-01-01", 10).map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    expect(streak([goal], entries, window, "2026-06-10")).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -289,6 +301,34 @@ describe("rankProgress", () => {
     expect(Number.isFinite(result.pct)).toBe(true);
     expect(result.pct).toBeGreaterThanOrEqual(0);
     expect(result.pct).toBeLessThanOrEqual(100);
+  });
+
+  it("does not advance pct on the calendar alone for a user with zero goals ever (audit C4)", () => {
+    // Before this fix: a null day (including "no active goals at all", not
+    // just "goals active, nothing due") consumed no grace and never reset
+    // window_start, so pct = elapsed-calendar-days / required climbed
+    // straight to 100%/completed on a brand-new account with no goals --
+    // reachable through the normal onboarding path (ADR-003 creates the
+    // RankWindow before any goal exists).
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const result = rankProgress([], [], window, "2026-06-10"); // ~5 months later
+    expect(result.pct).toBe(0);
+    expect(result.completed).toBe(false);
+    expect(result.window.graceUsed).toBe(0);
+  });
+
+  it("freezes pct rather than letting it advance after a goal expires (audit C4)", () => {
+    // 10 perfect days against a real, active goal, then the goal expires
+    // and 5 months pass with nothing active. pct should reflect only the
+    // 10 genuinely-qualifying days against D-rank's 60-day requirement
+    // (round(10/60*100) = 17), not the ~160 calendar days that elapsed.
+    const goal = dailyGoal("g1", { startDate: "2026-01-01", targetDate: "2026-01-10" });
+    const entries = datesFrom("2026-01-01", 10).map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const result = rankProgress([goal], entries, window, "2026-06-10");
+    expect(result.pct).toBe(17);
+    expect(result.completed).toBe(false);
+    expect(result.window.graceUsed).toBe(0);
   });
 });
 
