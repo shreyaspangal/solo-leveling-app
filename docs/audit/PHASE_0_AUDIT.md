@@ -23,6 +23,15 @@ item links back to its source finding for full detail — this section indexes b
 doesn't replace the findings themselves. Update it in the same change whenever a finding's
 pre-release status changes.
 
+> **Review note (2026-08-18, round-3 review):** tiering independently sanity-checked and it holds.
+> S10 folding into S1 is right (a Redis/KV store's native TTL removes the unbounded-growth problem
+> rather than papering over it). S11 as "recommended, not blocking" is justified by a *verified*
+> fact, not an assumption — Vercel always sets `x-forwarded-for`, so the shared-bucket path is
+> genuinely unreachable on the current deploy target. D6 as non-blocking is fair: it hardens the
+> CI supply chain, not anything a user touches. C4 was flagged as belonging in the blocking tier at
+> the time of this review — it has since been fixed (commit `9858f3e`) and is not carried into the
+> list below.
+
 ### Blocking — before public signup opens
 - **S1** — swap the rate limiter's in-memory store for Vercel KV / Upstash Redis. Also resolves
   **S10** (unbounded store growth disappears once the store has native TTLs — S10's own guardrail
@@ -149,14 +158,17 @@ Related: the trust in `x-forwarded-for` is correct **only because** the deploy t
 
 ## Correctness — rank engine (audit round 2, 2026-08-18)
 
-> These three were found by the review session in the round-2 audit, **immediately before the planned
+> C1-C3 were found by the review session in the round-2 audit, **immediately before the planned
 > ADR-002 addendum**. All three are ADR-002 semantics, not implementation slips — they should be
 > resolved *in* that addendum rather than patched ahead of it, since the fix requires a decision
 > about what `dailyCompletion` returning `null` is supposed to *mean*. Each was confirmed empirically
-> with a temporary probe test (since removed), not by reading alone.
+> with a temporary probe test (since removed), not by reading alone. C4 was found in the round-3
+> re-review of that same addendum, once it existed — a real consequence of the C1 fix, not a
+> regression of it. All four are now `FIXED`.
 
 ### C1. `rankProgress` counts a `null` completion as a miss — non-daily goals can never rank up
 **Status:** FIXED — resolved in the ADR-002 addendum (`docs/adr/002-rank-streak-pause.md` §A), not patched ahead of it. `rankProgress` now skips a `null` day (`completion !== null && completion !== 100`) instead of charging it as a miss. New tests: weekly-only 4-perfect-weeks no longer resets `window_start` (`graceUsed` stays `0`); monthly-only equivalent. Commit `f67c0c6`.
+**Review note — VERIFIED FIXED (2026-08-18, round-3 review, probe test against the committed engine, since removed):** the exact scenarios that originally proved C1 now behave correctly. Weekly-only user, 4 consecutive perfect weeks: `window_start` stays at `2026-01-01` (previously reset to `2026-01-21`), `pct` 35 rather than 2. Daily goal created 9 days after the window opened, then 11 perfect days: `window_start` stays at `2026-01-01` (previously reset to `2026-01-09`). Monthly-only coverage was added to the suite too. **However — the fix's "null is neutral" rule, applied uniformly, introduced C4 below: an account with *no* active goals now accrues full rank progress by doing nothing. C1 itself is genuinely fixed; C4 is the new consequence, not a regression of C1.**
 **Where:** `src/lib/rank-engine/engine.ts` (`rankProgress`, `if (completion !== 100)`).
 **Finding:** `dailyCompletion` returns `null` for a day with nothing scheduled (weekly goal not due) *and* for a day with no active goals at all. `rankProgress` tests `completion !== 100`, and `null !== 100`, so **every such day is charged as a miss and consumes grace**. Three misses reset `window_start`, so the window resets perpetually.
 
@@ -169,15 +181,36 @@ This directly contradicts ADR-002's own stated intent for `dailyCompletion`: `if
 
 ### C2. `streak` breaks on any day with nothing scheduled — weekly-only users cap at 1
 **Status:** FIXED — resolved alongside C1 in the same addendum (§A), same semantics: `streak` now skips a `null` day instead of ending the walk on it; a real miss still ends it. Added an explicit floor at the earliest goal's `start_date` (goals-empty short-circuits to `0`), since the walk is no longer naturally bounded by hitting a `null` day. New test: weekly-only 4-perfect-weeks now returns `streak: 4`, not `1`. All 4 pre-existing streak tests still pass unchanged. Commit `f67c0c6`.
+**Review note — VERIFIED FIXED (2026-08-18, round-3 review):** the weekly-only user with 4 consecutive perfect weeks now reports a **streak of 4** (was 1). The `earliestGoalStart` floor added alongside the fix is sound and necessary — once `null` stops terminating the backward walk, an all-unscheduled history would otherwise loop forever; the zero-goal early return (`goals.length === 0 → 0`) and its test cover that. Worth noting for C4: this zero-goal guard exists in `streak` but has no counterpart in `rankProgress`.
 **Where:** `src/lib/rank-engine/engine.ts` (`streak`, loop condition `dailyCompletion(...) === 100`).
 **Finding:** Same `null` root cause as C1. The loop continues only while a day is `isPaused` or exactly `100`; a `null` day terminates it. Proven: a weekly-only user with **4 consecutive perfect weeks reports a streak of 1**, because the day before each due day is unscheduled and ends the walk. Paused days are correctly skipped without breaking the chain — unscheduled days should almost certainly behave the same way, but currently don't.
 **Guardrail:** Resolve alongside C1 in the ADR-002 addendum, with the same semantics for both functions — `streak` and `rankProgress` must agree on what an unscheduled day means, or the two numbers shown to the user will disagree with each other. Note ADR-002's pseudocode already has the pause-skip branch spelled out; the unscheduled-day branch is simply missing from the spec, not mis-implemented against it.
 
 ### C3. `rankProgress.pct` is unbounded and has no completion behavior
 **Status:** FIXED (narrowly) — `pct` now clamps to `[0, 100]` and the result carries `completed: pct >= 100` (ADR-002 addendum §B). Deliberately narrow: `rankProgress` still doesn't mutate `rank_target` or create a new `RankWindow` row — full promotion mechanics (notification, history record, next-window creation) remain explicitly undecided, same as CLAUDE.md already listed, and are Phase 1 dashboard/persistence wiring, not a pure-function decision. Also floored `required_days` at 1, a defensive belt-and-suspenders guard alongside S3's schema-level protection against `rank_target: "E"`. New tests: 200-perfect-days-vs-60-day-requirement now returns `pct: 100`/`completed: true` (was `332`); an engine-reachable-but-schema-illegal `"E"` target no longer divides by zero. Commit `f67c0c6`.
+**Review note — VERIFIED FIXED (2026-08-18, round-3 review):** 200 perfect days against D-rank's 60-day requirement now returns `pct: 100`, `completed: true` (was `332`). The `required_days` floor of 1 is confirmed present and the `"E"`-target divide-by-zero no longer occurs. Keeping `completed` as a signal rather than a mutation is the right call — but note it is derived from the *clamped* `pct`, so `completed` is exactly `elapsed >= required_days`, and combined with C4 a zero-goal account reaches `completed: true` on pure elapsed time.
 **Where:** `src/lib/rank-engine/engine.ts` (`pct: Math.round((elapsed / requiredDays) * 100)`).
 **Finding:** `pct` is never clamped. Proven: 200 perfect days against D-rank's 60-day requirement returns **`pct: 332`**. Any UI binding a progress bar to this renders past full. This is the concrete form of the gap ADR-002 lists under "Explicitly out of scope" — what happens when a `RankWindow` completes (promotion, notification, history record) — which CLAUDE.md also lists under "What's explicitly NOT decided yet."
 **Guardrail:** The ADR-002 addendum is the right place to close this, since it is the same decision as rank promotion: at minimum clamp `pct` to 100, and define whether reaching 100% auto-advances `rank_target` to the next rank, and what record that leaves. **General rule: a computed percentage crossing its own threshold is a state transition, not just a number to clamp — decide the transition, then the clamp follows from it.**
+
+### C4. An account with no active goals accrues full rank progress by doing nothing
+**Status:** FIXED — resolved in a new ADR-002 addendum §D (`docs/adr/002-rank-streak-pause.md`). `rankProgress` and `streak` now independently ask `activeGoalsOn(goals, date)` rather than inferring the cause of a `null` `dailyCompletion` from the single sentinel value. In `rankProgress`, `pct` is now `qualifying_days / required_days` (only days with an active goal count, not raw calendar days); a goal-less stretch anywhere in the window doesn't advance `pct`, and doesn't retroactively erase already-counted progress either, since `qualifying_days` is monotonic and only resets on an actual 3rd-miss. In `streak`, a goal-less date now **breaks** the walk instead of being skipped like a rest day, so a long-dormant account can't surface a stale streak from old history. New tests: zero-goal account stays at `pct: 0`/`completed: false` regardless of elapsed calendar time; an account whose only goal expired freezes at its genuinely-qualifying days (10 perfect days against D-rank's 60-day requirement → `pct: 17`, not climbing further) rather than reaching 100; `streak` returns `0` immediately once the goal-less gap is hit rather than reporting the stale pre-expiry streak. 72/72 green. Commit `9858f3e`.
+**Where:** `src/lib/rank-engine/engine.ts` (`rankProgress`) + ADR-002 addendum §A.
+**Finding:** C1's fix is correct and verified (see its Review note), but "a `null` day is neutral" was applied uniformly to two structurally different situations that `dailyCompletion` cannot distinguish, because both return `null`:
+1. **goals exist, none scheduled today** — genuinely neutral, a rest day. Skipping is right.
+2. **no active goals at all** — should accrue *nothing*. Skipping means the window advances on pure elapsed time.
+
+Because `rankProgress` only measures `elapsed = today - window_start` and now consumes no grace on `null` days, an account with zero goals never resets its window and climbs purely with the calendar. Measured on the current committed engine:
+- **zero-goal account:** day 15 → `pct: 23`; **day 61+ → `pct: 100`, `completed: true`**, `graceUsed: 0`, window never reset. `personalDevelopmentScore` reports **70**.
+- **all-goals-expired account** (single goal that ended `2026-01-10`, nothing since): five months later → `pct: 100`, `completed: true`, **PDS 80**.
+- **contrast — abandoned active goal** (daily goal, logged 3 days then stopped): correctly → `pct: 0`, window reset, because those days *are* scheduled and score 0%.
+
+That contrast is the cleanest statement of the bug: **having no goals at all now scores strictly better than having a goal you are neglecting.** A user who completes onboarding and never returns reaches "E→D complete" in 60 days.
+
+This is not a rare edge case — it is **the default state of every account in the app today.** ADR-003 deliberately creates the `RankWindow` at the end of setup, *before* any goal exists (goal creation is Phase 1), so every user who finishes onboarding right now is a zero-goal account with a live, silently-advancing rank window.
+
+Root cause is a spec gap in the addendum, not a coding slip: §A defines what `null` means to the *walk* (skip the day) but never what it means to the *result* when every day in the window is `null`. The addendum did consider zero-goal users — but only for `streak`, where the symptom was a visible infinite loop, and it concluded `rankProgress` "needs no new floor," which is true of the loop bound and untrue of the output. The test suite mirrors exactly that asymmetry: there is a zero-goal test for `streak` (`returns 0 immediately for a user with no goals...`) and **none for `rankProgress`**.
+**Guardrail:** Distinguish the two `null` cases rather than collapsing them — either have `dailyCompletion` report *why* it returned `null` (no active goals vs. nothing scheduled), or have `rankProgress` short-circuit when the user has no active goals for a day and not count that day toward `elapsed` at all. Decide explicitly whether a window that spans goal-less days should advance, pause, or restart. **General rule (the same one C1 taught, inverted): one sentinel value covering two different situations will eventually be wrong for one of them — C1 was this bug reading `null` as failure, C4 is it reading `null` as success. When a fix makes a sentinel "neutral," check every case that produces it, not just the one that motivated the fix.** Add a zero-goal and an all-expired-goals case to `rankProgress`'s tests, mirroring the guard `streak` already has.
 
 ---
 
@@ -247,6 +280,7 @@ This directly contradicts ADR-002's own stated intent for `dailyCompletion`: `if
 
 ### D5. CI does not run `next build`
 **Status:** FIXED — added a `Build` step at the end of `.github/workflows/ci.yml` with placeholder `NEXT_PUBLIC_SUPABASE_*` env values. Commit `314d53d`.
+**Review note — VERIFIED FIXED, including the bigger find (2026-08-18, round-3 review):** the claim that *every* CI run had failed since repo creation was independently reproduced, not taken on trust — deleting `.next` to simulate a fresh checkout and running `npx tsc --noEmit` fails with `src/app/layout.tsx(20,50): error TS2304: Cannot find name 'LayoutProps'`, and `npx next typegen` clears it. The typecheck gate had therefore never once passed, which makes the incidental find the larger half of this fix. The build step's dummy-env approach is sound (`env.ts` only asserts non-empty; no network call at build time), and the RLS job's `eval`-then-write handling of `supabase status -o env` shell quoting is correct.
 **Where:** `.github/workflows/ci.yml`.
 **Finding, and a bigger one found while fixing it:** None of lint/typecheck/test caught a build-breaking change — not hypothetical, since the S7/S8/S9 CSP work edited `next.config.ts` directly. But pushing this session's commits surfaced something worse: **every CI run since the repo was created had failed**, all on `tsc --noEmit` alone — `LayoutProps` (a Next.js-generated route/layout type) doesn't exist until `next build` or `next dev` has run at least once, and a fresh CI checkout has neither. D1's "CI pipeline exists" was true; "CI pipeline has ever passed" was not, and nothing surfaced that gap because nobody was watching the Actions tab on a repo with no remote until this session.
 **Guardrail:** Fixed with `next typegen` (generates just the types, no full build) as a step before `tsc --noEmit`, plus the `next build` step this finding originally asked for. **General rule: adding a CI workflow is not the same claim as "CI passes" — check the Actions tab (or `gh run list`) after the first real push, not just that the YAML is syntactically valid.** This is the same lesson as S7 in different clothing: a thing that is present and looks correct can still not work end-to-end.
@@ -267,7 +301,30 @@ This directly contradicts ADR-002's own stated intent for `dailyCompletion`: `if
   Getting this green surfaced a real bug along the way: the first insert failed with `permission denied for table goals` — a Postgres GRANT-level error, not an RLS rejection. Checked whether the real linked project had the same problem before assuming local-only (queried `information_schema.table_privileges` via the Management API rather than guessing): it didn't — the hosted platform already grants `anon`/`authenticated` full CRUD on all four tables, but `supabase start`'s local bootstrap doesn't extend that to tables created by later user migrations. Fixed with an explicit grants migration (`00000000000003_grants.sql`), applied to both local and the linked remote project (a no-op there, since `GRANT` is idempotent and the privileges already existed).
 
   All 8 RLS tests pass against real local Postgres, verified on GitHub's runners (Docker isn't available on this machine to verify locally) — CI run `32130777517`.
+
+**Review note — VERIFIED, with one limitation stated plainly (2026-08-18, round-3 review):** the unit suite is green at **69 tests across 5 files** (was 22), and the integration split genuinely works — the unit run completes with no Docker present and never picks up `rls.integration.test.ts`, confirming the `exclude` in `vitest.config.mts` isn't merely declared. Reviewing the RLS suite's *content* against ADR-003's stated surface: it covers select/update/delete isolation on `goals`, the join-through policies on `goal_entries` and `milestones`, `rank_windows` isolation, a positive control (user A *can* see their own rows — without which all the empty-array assertions could pass vacuously), and the `WITH CHECK` insert rejection, correctly noting that an INSERT surfaces an explicit error where filtered select/update/delete simply affect zero rows. That is a faithful implementation of the ADR's surface. The `00000000000003_grants.sql` reasoning also holds: granting to `anon` is safe precisely because `auth.uid()` is `NULL` for unauthenticated requests, so every policy's `auth.uid() = user_id` (and the join-through variants) is unsatisfiable regardless of table-level privilege — RLS remains the boundary, as ADR-003 intends.
+  **Limitation: Docker is unavailable on this machine, so I could not execute these tests myself.** Their passing status rests on the peer's CI run, not on independent execution — the one claim in this round I am relaying rather than verifying. Also note a forward-looking consequence of the grants migration: because new tables are no longer auto-exposed, **ADR-004/005's Finance/Fitness tables will each need their own grants alongside their RLS policies**, or they will fail exactly the way `goals` just did.
 **Guardrail:** Treat a documented test surface as part of the definition of done for the slice that introduces it. **General rule: when an ADR specifies a test surface, the slice implementing that ADR is not done until those tests exist or the ADR is amended to drop them.** New corollary from the grants bug: **local Supabase (`supabase start`) is not guaranteed to match the hosted platform's bootstrap behavior — verify assumptions about implicit platform setup (default grants, roles) against the real linked project via the Management API rather than assuming parity, the same way this was just checked rather than guessed.**
+
+### D8. RLS test suite's local-only URL guard is bypassable via URL userinfo
+**Status:** FIXED — extracted into `src/lib/supabase/local-url-guard.ts`, switched from a regex over the raw URL string to `new URL(url).hostname.toLowerCase()` checked against an explicit allowlist (`127.0.0.1`, `localhost`, `[::1]`). Closes the userinfo bypass and both cosmetic false-refusals (uppercase `LOCALHOST`, IPv6 `[::1]`) in one change. Given its own unit test file (`local-url-guard.test.ts`, 7 tests including a regression test for the exact `http://localhost:54321@evil.com/` bypass string) so this runs in the fast suite on every commit rather than only being exercised implicitly when Docker happens to be available for the integration test that uses it. Commit `3012b8b`.
+**Where:** `src/lib/supabase/rls.integration.test.ts` — `/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(SUPABASE_URL)`.
+**Finding:** The guard exists to stop the suite — which creates throwaway users and never cleans them up — from ever running against the real linked project. It was explicitly submitted for independent verification ("unbypassable, not just present"), so it was tested rather than read. Results against candidate URLs, comparing the guard's verdict to the actual `new URL().hostname`:
+
+| URL | guard | real host | verdict |
+|---|---|---|---|
+| `http://127.0.0.1:54321` | ALLOW | `127.0.0.1` | ok |
+| `https://abcdefg.supabase.co` | REFUSE | `abcdefg.supabase.co` | ok |
+| `http://localhost.evil.com/` | REFUSE | `localhost.evil.com` | ok — suffix attack correctly caught |
+| `http://127.0.0.1.evil.com/` | REFUSE | `127.0.0.1.evil.com` | ok |
+| **`http://localhost:54321@evil.com/`** | **ALLOW** | **`evil.com`** | **BYPASS** |
+| `http://LOCALHOST:54321` | REFUSE | `localhost` | false refusal (cosmetic) |
+| `http://[::1]:54321` | REFUSE | `[::1]` | false refusal (cosmetic) |
+
+The bypass is the URL *userinfo* form: in `http://localhost:54321@evil.com/`, `localhost:54321` is the `user:password` component and the real host is `evil.com`. The regex anchors on the literal text after `://` and cannot see that.
+
+**Honest severity: low.** The stated threat model is *accidental* misconfiguration — pointing the suite at the linked project by mistake — and an accidental value looks like `https://xyz.supabase.co`, which the guard *does* correctly refuse. The bypass requires a deliberately hand-crafted URL nobody types by accident, and the string-suffix attacks (the ones that show up in real misconfigurations and typosquats) are all correctly caught. So the guard does defend against the thing it was written to defend against; it is simply not the airtight check the comment implies.
+**Guardrail:** Parse rather than pattern-match: `const h = new URL(SUPABASE_URL).hostname` then compare `h` against an explicit allowlist (`127.0.0.1`, `localhost`, `::1`), lowercased. That closes the bypass and both cosmetic false-refusals in one change. **General rule: a security check on a structured string (URL, email, path, hostname) should parse it with a real parser and inspect the specific component, never regex the raw text — the parser and the regex will eventually disagree about where the boundaries are, and the attacker picks which one is right.**
 
 ---
 
