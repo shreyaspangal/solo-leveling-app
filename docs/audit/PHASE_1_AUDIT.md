@@ -30,15 +30,29 @@ Concretely, per slice:
 
 Status of each slice's audit, updated as work proceeds. `PENDING` = not built yet · `AWAITING REVIEW`
 = built, done signal sent, review not back yet · `IN REVIEW` = review session is actively on it ·
-`CLEAR` = reviewed, no blocking findings (or all findings from that slice's round fixed and
-re-verified) · findings themselves get their own `###` entries below, same as Phase 0's `S`/`C`/etc.
+`BLOCKED (browser access)` = code-level review passed, but browser/UI verification could not be
+completed — auth-gated routes need a signed-in session, and neither Docker (local Supabase) nor a
+disposable test account in the linked project is currently available/authorized; see the note below
+· `CLEAR` = reviewed, no blocking findings (or all findings from that slice's round fixed and
+re-verified), **including a completed browser pass** · findings themselves get their own `###`
+entries below, same as Phase 0's `S`/`C`/etc.
 
 | # | Slice | Status |
 |---|---|---|
-| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | AWAITING REVIEW |
+| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | BLOCKED (browser access) — code-level findings all fixed (P1-2, P1-3, P1-6) or resolved via ADR (P1-1); P1-4, P1-5 deliberately deferred |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | PENDING |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
+
+**Browser access blocker (2026-08-18):** every authenticated route (`/dashboard`, `/setup`,
+`/quests/new`) 307s to `/login` for a signed-out request, which is correct behavior but means
+browser/UI verification of anything past login needs a real session. Neither session can produce
+one: Docker is unavailable on this machine for a local Supabase stack, and creating a test account
+in the real linked project is exactly the external side effect the RLS suite's D8 guard exists to
+prevent doing casually. This affects every remaining slice, not just slice 1 — 2, 3, and 4 are all
+behind auth too. Escalated to the project owner rather than either session picking an answer
+unilaterally; needs one of: Docker enabled locally, or explicit authorization for a disposable test
+account.
 
 Explicitly out of scope for this pass, not oversights: goal editing/deletion, milestones, the
 global date filter (Phase 3 per `CLAUDE.md`). Flagged here so neither session re-raises them as
@@ -99,7 +113,26 @@ Two distinct consequences, worth separating:
 
 ---
 
+### P1-6. ADR-006's timezone backfill is scoped out but tracked nowhere actionable
+**Status:** FIXED — added `src/app/timezone-sync.tsx` (`TimezoneSync`, a client component rendering nothing), mounted in `/dashboard` — the hub every authenticated user passes through repeatedly. On mount, compares the browser's detected timezone against `user_metadata.timezone` and calls `supabase.auth.updateUser` only when they differ, so it's a no-op read-and-compare on every visit that doesn't need a write. Covers both pre-`a41a234` accounts (never captured) and a timezone that changes later (e.g. travel) — the latter wasn't the original ask but falls out of the same mechanism for free and stays within ADR-006's "auto-detected only" scope, not a manual-override feature.
+
+Not added to Phase 0's Pre-Release Checklist as requested: the guardrail's own framing was "revisit if it matters before public launch," premised on the gap staying open until then. It doesn't stay open — this fix closes it now, in the same round it was found, so there's nothing left for a pre-launch checklist to track. `docs/adr/006-user-day-boundary.md`'s "Explicitly out of scope" list is updated to say so rather than left describing the pre-fix state. tsc/lint/test(90/90)/build clean. Commit `a3b01df`.
+**Slice:** 1 (follow-on from P1-1's fix)
+**Where:** `docs/adr/006-user-day-boundary.md` — "Explicitly out of scope: Backfilling `user_metadata.timezone` for accounts that completed setup before this ADR."
+**Finding:** The fallback itself is right, and deciding not to backfill now is a reasonable call. The problem is bookkeeping: timezone is captured **only** at the end of `/setup`, which is a one-time onboarding step, so an account that finished onboarding before `a41a234` will *never* acquire a timezone through normal use — it falls back to UTC permanently and silently reproduces exactly the P1-1 behavior ADR-006 was written to fix. That already includes at least one real account (the one used to verify the `updateUser` write against the linked project). ADR-006 says "revisit if it matters before public launch," but that sentence lives only in an ADR's out-of-scope list — it isn't in Phase 0's **Pre-Release Checklist**, which is the doc that exists precisely so "must happen before real users" is one answerable list rather than something reconstructed by grepping guardrails.
+**Guardrail:** Add it to the Pre-Release Checklist (blocking tier — it's a correctness issue for every pre-existing account, and the affected users are invisible because the fallback is silent). The fix itself is small: capture timezone on any authenticated request when `user_metadata.timezone` is absent, rather than only at setup. **General rule: "out of scope, revisit before launch" is only a real decision if it's written where launch readiness is actually tracked — an ADR's out-of-scope list is documentation, not a queue.**
+
+---
+
 ## Not flagged
+
+**Round 2 (P1-1/P1-2/P1-3 fixes) — verified:**
+- **ADR-006 is a sound decision, properly made.** Taken to the project owner as a product question rather than decided in code, three options weighed with the rejections reasoned (not just listed), and written before implementing. `todayInTimezone` is correct: `en-CA` genuinely yields `YYYY-MM-DD`, and the `try/catch` fallback handles both a missing timezone and a corrupted one (`Intl.DateTimeFormat` throws `RangeError` on an unrecognized IANA id) without throwing. Keeping it out of `rank-engine/date-utils.ts` is the right seam — that file's UTC anchoring is about arithmetic determinism and is unrelated to whose midnight counts.
+- **`toUserError` is correct** and applied at `createQuest`'s only DB-error path; the real error still reaches the server log, tagged with the action name.
+- **Labels:** all three quest-form fields now have `<label htmlFor>` matching the existing pattern.
+- **The jsx-a11y investigation was right, and my original suggestion was wrong.** Re-tested both rules directly rather than accepting either account: with the TypeScript parser, **`jsx-a11y/label-has-associated-control` is clean on all four form files** — because it only validates that a `<label>` *has* a control, so it structurally cannot catch an input with no label at all, which is the actual P1-3/P1-5 defect. The rule that does catch it, `control-has-associated-label`, flags login (2) and signup (3) correctly but also fires on **8** quest-form elements including the already-correctly-labelled `startDate`/`targetDate`, exactly as reported. So neither rule makes this mechanical without noise, the revert was correct, and review discipline is the right call. Recorded because I suggested the rule that turned out not to fit — the correction matters more than the original suggestion.
+- **Browser, reachable pages:** `/welcome`, `/rules`, `/login`, `/signup` all render with **0 console errors and 0 warnings**; auth-gated routes (`/quests/new`, `/setup`, `/dashboard`) all `307` to `/login`.
+- **P1-5 is milder than "unlabelled" — measured, not assumed.** Chrome's accessibility tree reports `textbox "Email"` / `textbox "Password"` on `/login`, i.e. the accessible *name* is computed from `placeholder` per the ACCNAME fallback, so a screen reader does announce something. The real defects remain (the name vanishes visually once the field has content, and placeholder-as-label is a known anti-pattern), but it is not the total failure "no label" implies. Worth knowing when prioritizing it.
 
 **Slice 1 — verified, so it isn't re-checked next round:**
 - **`user_id` comes from the session, never client input** — confirmed at `actions.ts:49-50`: `user.id` from `supabase.auth.getUser()`, and `formData` is never consulted for it. The inline comment correctly notes RLS's `WITH CHECK` would reject a mismatch anyway but shouldn't be the only thing standing there — that's the right posture, defence in depth rather than relying on the database alone.
