@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { toUserError } from "@/lib/errors";
 import { createGoalSchema } from "@/lib/schemas/goal";
 import { createClient } from "@/lib/supabase/server";
 
@@ -59,7 +60,7 @@ export async function createQuest(
   });
 
   if (error) {
-    return { error: error.message };
+    return { error: toUserError(error, "createQuest") };
   }
 
   redirect("/dashboard");

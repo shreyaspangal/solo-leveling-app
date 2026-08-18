@@ -22,26 +22,37 @@ export function NewQuestForm() {
 
   return (
     <form action={formAction} className="mt-6 space-y-3">
+      <label className="block text-sm text-zinc-500" htmlFor="title">
+        Quest title
+      </label>
       <input
+        id="title"
         name="title"
         type="text"
-        placeholder="Quest title"
+        placeholder="e.g. Wake up at 6 AM"
         required
         minLength={1}
         maxLength={200}
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
       />
+      <label className="block text-sm text-zinc-500" htmlFor="description">
+        Description (optional)
+      </label>
       <textarea
+        id="description"
         name="description"
-        placeholder="Description (optional)"
         maxLength={2000}
         rows={3}
         className="w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-transparent"
       />
+      <label className="block text-sm text-zinc-500" htmlFor="category">
+        Category
+      </label>
       <input
+        id="category"
         name="category"
         type="text"
-        placeholder="Category"
+        placeholder="e.g. Habits"
         required
         list="category-suggestions"
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
