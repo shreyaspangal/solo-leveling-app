@@ -15,6 +15,44 @@ even after the specific instance is resolved.
 
 ---
 
+## Pre-Release Checklist
+
+Gathered here so "what must happen before real users show up" is a single answerable list rather
+than something to reconstruct by grepping every finding's guardrail for the word "before." Each
+item links back to its source finding for full detail — this section indexes by urgency, it
+doesn't replace the findings themselves. Update it in the same change whenever a finding's
+pre-release status changes.
+
+### Blocking — before public signup opens
+- **S1** — swap the rate limiter's in-memory store for Vercel KV / Upstash Redis. Also resolves
+  **S10** (unbounded store growth disappears once the store has native TTLs — S10's own guardrail
+  says not to build a bespoke eviction sweep instead of just doing this).
+- **S2** — move the CSP's `script-src` off `'unsafe-inline'` to a nonce-based policy.
+- **S5** — two remaining pieces, both external decisions rather than code: upgrade to a Supabase
+  Pro plan to enable leaked-password (HIBP) protection, and provision an hCaptcha/Cloudflare
+  Turnstile account to enable CAPTCHA.
+
+### Recommended before launch — cheap, not blocking
+- **S11** — `getClientIp`'s `"unknown"` fallback bucket merges every caller into one shared
+  rate-limit identity. Latent, not a live bug: Vercel always sets `x-forwarded-for`, so this
+  doesn't fire on the current deploy target. Worth closing anyway before launch — it's a one-line
+  fail-closed fix, and a self-inflicted lockout is exactly the kind of thing that's confusing to
+  debug under real incident pressure.
+- **D6** — CI workflow least-privilege permissions and pinned actions. Pure hardening, no external
+  dependency, cheap whenever picked up.
+
+### Before Phase 1 dashboard ships — a scale gate, not a launch gate
+- **SC3** (sharpens **SC1**) — `rankProgress`'s per-call cost is quadratic in window length ×
+  entry count. Fine at Phase 0's zero real data; not fine once rank windows run for months. Pair
+  with SC1's own guardrail on scoping the Supabase query (`WHERE date >= window_start`) — both are
+  about the same data-fetching/computation boundary Phase 1's dashboard is about to build against.
+
+Everything else marked `FIXED` or `ACCEPTED` needs no further action before launch. `M3` and
+`SC2` are intentionally deferred to their own trigger conditions (a 3rd auth-shell page; the
+first list UI shipping) — that's a scope decision, not a launch-readiness gap.
+
+---
+
 ## Security
 
 ### S1. No rate limiting on `login`/`signup` server actions
