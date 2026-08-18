@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { TimezoneSync } from "../timezone-sync";
 
 // Placeholder: the real Home Dashboard is Phase 1 slice 4. Goal creation
 // (slice 1) exists at /quests/new; this page just links to it until the
@@ -17,6 +18,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+      <TimezoneSync />
       <h1 className="text-2xl font-semibold tracking-tight">You&apos;re set up.</h1>
       <p className="mt-3 max-w-sm text-zinc-600 dark:text-zinc-400">
         The full Home Dashboard is still being built. Rank tracking starts

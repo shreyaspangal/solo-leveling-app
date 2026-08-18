@@ -40,9 +40,15 @@ Each user's "today" is computed in **their own IANA timezone**, captured once, n
 re-derived per request from anything other than that stored value.
 
 - **Capture:** client-side, via `Intl.DateTimeFormat().resolvedOptions().timeZone` — a standard
-  browser API, auto-detected, no user input required. Captured once at the end of `/setup`,
-  alongside the existing `RankWindow` creation (`completeSetup`), since that's already the
-  one-time onboarding-completion step.
+  browser API, auto-detected, no user input required. Captured at the end of `/setup`, alongside
+  the existing `RankWindow` creation (`completeSetup`), since that's already the one-time
+  onboarding-completion step — **and** opportunistically re-checked/refreshed by `TimezoneSync`
+  (`src/app/timezone-sync.tsx`), mounted on `/dashboard`, on every authenticated visit. The setup
+  capture alone would only ever reach accounts created after this ADR; `TimezoneSync` closes that
+  gap for every pre-existing account too (audit finding P1-6) and, as a side effect within the
+  same "auto-detected only" scope, keeps a traveling user's timezone current without needing a
+  manual-override feature. It only writes when the stored value differs from the freshly-detected
+  one, so it's a no-op comparison on most visits.
 - **Storage:** Supabase Auth's `user_metadata.timezone` (via `supabase.auth.updateUser({ data:
   { timezone } })`), **not a new table or column.** `user_metadata` exists exactly for a small,
   non-sensitive per-user preference like this, and a dedicated `user_settings` table for one field
@@ -55,11 +61,10 @@ re-derived per request from anything other than that stored value.
   UTC-anchored so day math never shifts by the host machine's timezone (that reasoning is correct
   and unrelated to this decision — see that file's own comment). `today.ts` is the one place real
   wall-clock time enters the app; `date-utils.ts` never needs to know a timezone exists.
-- **Fallback:** no stored timezone (accounts that completed setup before this ADR, or a capture
-  failure) or an invalid/corrupted stored value (`Intl.DateTimeFormat` throws a `RangeError` on an
-  unrecognized IANA identifier) → falls back to `"UTC"`, matching current behavior. Not a
-  regression for those accounts; a pre-existing-user backfill path is not built here (out of
-  scope for this ADR — revisit if it matters before public launch).
+- **Fallback:** no stored timezone yet (a brand-new session before `TimezoneSync` has run once) or
+  an invalid/corrupted stored value (`Intl.DateTimeFormat` throws a `RangeError` on an unrecognized
+  IANA identifier) → falls back to `"UTC"` for that request. Self-correcting on the next
+  authenticated `/dashboard` visit rather than a permanent state, per the capture mechanism above.
 - **Where it's used:** everywhere the app currently computes "today" server-side. Concretely as of
   this ADR: the quest-creation form's default `startDate` (Phase 1 slice 1). Going forward: slice
   2's entry-write default date, and slice 3's rank engine calls (`streak`/`rankProgress`/
@@ -89,8 +94,6 @@ re-derived per request from anything other than that stored value.
 
 ## Explicitly out of scope
 
-- Backfilling `user_metadata.timezone` for accounts that completed setup before this ADR — they
-  fall back to UTC until they re-run onboarding or a dedicated backfill is written.
 - Letting a user manually override their detected timezone (e.g. if they travel) — auto-detected
   only, for now.
 - A general per-user settings/preferences table — `user_metadata` is sufficient for one field;
