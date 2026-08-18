@@ -24,10 +24,35 @@ even after the specific instance is resolved.
 **Guardrail:** Before this app takes real production traffic, swap `rate-limit.ts`'s in-memory store for Vercel KV / Upstash Redis (both fit a Vercel deploy target, per the `api-rate-limiting` skill's storage-backend guidance) -- the `checkRateLimit`/`resetRateLimitStore` call sites don't need to change, only the store implementation. Any new server action that accepts credentials or triggers an email/SMS send gets rate-limited the same way, through the same utility, not a copy of the logic.
 
 ### S2. No security headers configured
-**Status:** OPEN
-**Where:** `next.config.ts`
-**Finding:** Empty config — no CSP, `X-Frame-Options`, `Referrer-Policy`, HSTS, etc.
-**Guardrail:** Add a headers block before first public deployment (not required for local dev). Track as a pre-deploy checklist item, not a Phase 0 blocker.
+**Status:** PARTIALLY FIXED — baseline header set added; CSP's `script-src` still needs `'unsafe-inline'` in production.
+**Review note (2026-08-18, review session):** the header set was independently verified as landing correctly on both pages and static assets, in prod *and* dev builds. However, browser testing of the same CSP surfaced three follow-on defects — see S7, S8, S9, all now FIXED below.
+**Where:** `next.config.ts` (`headers()`, applied to `/:path*`).
+**Finding:** Config was empty — no CSP, `X-Frame-Options`, `Referrer-Policy`, HSTS, etc. Now sets `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (camera/microphone/geolocation denied), HSTS (`max-age=63072000; includeSubDomains; preload`), and a CSP scoped to `'self'` plus `https://*.supabase.co` on `connect-src` for Auth/REST/Storage.
+**Guardrail:** The CSP's `script-src 'self' 'unsafe-inline'` is a real gap, not closed by this fix — Next.js injects inline hydration/RSC bootstrap scripts, and this app has no nonce plumbing (`src/proxy.ts` would need to generate a per-request nonce and thread it through) to drop `'unsafe-inline'` safely. **Before public launch, move to a nonce-based CSP** (Next.js supports this via a nonce set in middleware/proxy + read via `headers()` in the root layout) so injected third-party script content can't execute even if HTML injection occurs elsewhere. Verify headers with `curl -I` against a running build whenever `next.config.ts`'s `headers()` block changes.
+
+### S7. CSP `form-action 'self'` blocks the Google/Apple OAuth flow
+**Status:** FIXED — `form-action` now reads `'self' https://*.supabase.co https://accounts.google.com https://appleid.apple.com` (`next.config.ts`), covering both hops of the redirect chain (Supabase `/auth/v1/authorize`, then the provider). Verified: prod build's `curl -I` response includes the widened directive; dev build likewise. Not re-verified against a real browser in this session — that re-check belongs to the review session per the session-split convention below.
+**Where:** `next.config.ts` (CSP `form-action 'self'`), triggered by `src/app/login/page.tsx` + `src/app/signup/page.tsx` (`<form action={logInWithGoogle}>` etc.) → `src/lib/supabase/oauth.ts` (`redirect(data.url)`).
+**Finding:** The OAuth buttons are HTML forms whose server action responds with a redirect to an external origin (Supabase's `/auth/v1/authorize`, which itself redirects on to `accounts.google.com` / `appleid.apple.com`). Chrome validates **every hop of a form submission's redirect chain** against `form-action`, so the navigation is blocked. Email login/signup are unaffected — their redirects are same-origin.
+
+Verified empirically (review session, temporary route since removed, Chrome via Playwright against a real dev server):
+- form POST → **cross-origin** redirect: **BLOCKED** — `Sending form data to 'http://localhost:3412/csptest/go' violates the following Content Security Policy directive: "form-action 'self'". The request has been blocked.` (note Chrome names the *original* action URL in the message even though the violation is the redirect hop — easy to misdiagnose)
+- form POST → **same-origin** redirect: navigated successfully, no violation
+
+This fails silently from the user's perspective: clicking "Continue with Google" does nothing visible, with the only signal in the browser console.
+**Guardrail:** `form-action` must list every origin a form submission can be redirected *to*, not just the origin it's submitted to — the redirect chain counts. Concretely: `form-action 'self' https://*.supabase.co https://accounts.google.com https://appleid.apple.com`. **General rule: any CSP directive change must be validated against a real browser navigating the actual flow, not just `curl -I` confirming the header is present.** A header that is present and syntactically valid can still break a user-facing flow — presence is not correctness. Add the OAuth click-through to the pre-launch manual test list, since no automated test covers it today.
+
+### S8. CSP `script-src` omits `'unsafe-eval'` in development, breaking React dev tooling
+**Status:** FIXED — `next.config.ts` now appends `'unsafe-eval'` to `script-src` only when `process.env.NODE_ENV === "development"`. Verified: dev build's CSP header includes it, prod build's does not (checked both via `curl -I`).
+**Where:** `next.config.ts` (CSP `script-src 'self' 'unsafe-inline'`, applied in all environments).
+**Finding:** React's development build uses `eval()` for debugging features (callstack reconstruction, owner stacks). Under this CSP, dev mode logs a permanent console error — `eval() is not supported in this environment. If this page was served with a Content-Security-Policy header, make sure that 'unsafe-eval' is included...` — and raises a Next.js Dev Tools issues badge. Verified in a real browser against `next dev`. The app still renders and hydrates correctly (checkbox state and gated navigation on `/rules` both worked), so this is a **developer-experience regression, not app breakage**: degraded React error diagnostics plus permanent console noise that will mask real errors during Phase 1 development.
+**Guardrail:** Relax `script-src` **for development only**, keeping production strict — e.g. append `'unsafe-eval'` when `process.env.NODE_ENV === "development"`. **General rule: never loosen a production CSP to fix a dev-only problem; gate the relaxation on the environment so the strict policy is what actually ships.**
+
+### S9. CSP `connect-src` omits the local Supabase origin (latent)
+**Status:** FIXED — `next.config.ts` now appends `http://127.0.0.1:54321 ws://127.0.0.1:54321` to `connect-src` only when `process.env.NODE_ENV === "development"`, matching `supabase/config.toml`'s local API port. Verified via `curl -I` on both dev and prod builds; prod stays `https://*.supabase.co`-only.
+**Where:** `next.config.ts` (CSP `connect-src 'self' https://*.supabase.co`) vs. local Supabase at `http://127.0.0.1:54321` (`supabase/config.toml`, `[api] port = 54321`).
+**Finding:** The browser Supabase client (`src/lib/supabase/client.ts`) is **not imported anywhere yet** — verified by grep — so no request is currently blocked. The moment Phase 1 uses the browser client against local Supabase, every call will be blocked by CSP, and the failure will look like a Supabase/network bug rather than a CSP one.
+**Guardrail:** Allow the local Supabase origin in `connect-src` under development only (same environment-gated pattern as S8), so production keeps the `https://*.supabase.co`-only policy. **General rule: when a CSP allowlists a hosted service, check whether that service also has a localhost/dev origin, and gate that origin to development — otherwise local dev silently diverges from prod.**
 
 ### S3. `rankTarget` Zod schema is looser than the DB constraint
 **Status:** FIXED — split into `rankSchema` (full E-S domain) and `rankTargetSchema` (D-S only, matches the DB check constraint), `rankTarget` field now uses the latter.
@@ -107,6 +132,12 @@ even after the specific instance is resolved.
 **Finding:** The implementation is correct and the divergence is well-documented in code — good instinct. But per CLAUDE.md's own source-of-truth hierarchy, ADRs are supposed to be authoritative and durable; leaving the ADR wrong means a future session (agent or human) reading the ADR first, without noticing the code comment, could "fix" the correct code back to match the buggy doc.
 **Guardrail:** **Whenever an implementation deliberately deviates from its ADR's pseudocode/spec, the ADR itself must be corrected in the same change — not just explained in a code comment.** A code comment documents *why* the code differs; it does not stop the next session from trusting the ADR over the code. Fix `docs/adr/002-rank-streak-pause.md`'s formula now as part of closing this item.
 
+### D4. `next dev` mutates the tracked `CLAUDE.md` on every run
+**Status:** FIXED — committed the injected `<!-- BEGIN:nextjs-agent-rules -->` block once so it stops showing up as a phantom diff.
+**Where:** `CLAUDE.md` — Next.js appends a `<!-- BEGIN:nextjs-agent-rules -->` … `<!-- END:nextjs-agent-rules -->` block (written by `node_modules/next/dist/server/lib/generate-agent-files.js`).
+**Finding:** Simply running `npm run dev` produces an uncommitted modification to a tracked, human-authored file. Next.js re-adds the block if removed, so reverting it just recreates the diff on the next dev run. Surfaced during the review session as a spurious `M CLAUDE.md` that was easy to mistake for someone's edit.
+**Guardrail:** Commit the injected block once so the working tree stays clean, rather than repeatedly reverting it. **General rule: when a tool writes into a tracked file as a side effect of a normal dev command, either commit its output or ignore it deliberately — don't leave it as a permanent phantom diff that every future session has to re-investigate.**
+
 ---
 
 ## Not flagged (checked, confirmed fine — recorded so it isn't re-audited from scratch)
@@ -117,7 +148,13 @@ even after the specific instance is resolved.
 - `src/proxy.ts` middleware matcher correctly excludes static assets.
 - Migrations have proper indexes (`goals_user_id_idx`, `goal_entries_goal_id_date_idx`, `rank_windows_user_id_idx`) and `ON DELETE CASCADE` on all foreign keys.
 - Test suite (`src/lib/rank-engine/engine.test.ts`) covers the exact surface ADR-002 specifies: grace boundary (2 vs. 3 misses), pause boundary (day 1 and day 7), streak-pause interaction.
-- No secrets committed anywhere in git history.
+
+**Secret / leak sweep — re-verified 2026-08-18 (review session), after `.env.local.example` became tracked via S4:**
+- No secrets anywhere in git history or the working tree. Scanned all commits and all non-`node_modules` files for JWT-shaped strings (`eyJ…`), `sb_secret`, `service_role`, `SUPABASE_SERVICE_ROLE`, `sk-…`, and PEM headers. Only matches were the literal *word* `service_role` in comments/docs and a coincidental `eyJ` substring inside an npm integrity hash in `package-lock.json` — both benign.
+- `.env.local.example` (now tracked) contains **empty placeholder values only** — no real project URL or key. Safe to be public.
+- `.env.local` does not exist on disk and is correctly matched by `.gitignore`'s `.env*`.
+- `supabase/config.toml` is safe to commit: every secret slot uses `env(...)` substitution (e.g. `auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"`), zero literal credentials.
+- Build, `tsc --noEmit`, `eslint`, and `vitest` (16/16) all green at the time of review.
 
 ---
 
@@ -127,3 +164,12 @@ even after the specific instance is resolved.
 - When an item is fixed, change its Status to `FIXED` and leave the Guardrail text in place — it's the reusable rule, not a description of the one-time fix.
 - When a new finding surfaces (self-audit, code review, or a bug caught in the wild), add it here in the same format: **Finding** (what and where) + **Guardrail** (the rule that prevents recurrence, phrased so it applies to future code, not just this instance).
 - This file is a supplement to the ADRs, not a replacement — structural decisions still belong in `docs/adr/`; this file tracks process/quality gaps and the rules meant to close them.
+
+### Session split: who writes what
+
+Work on this project runs across two Claude sessions with deliberately separate roles. Keep them separate — the value of the review is that it is independent of the implementation.
+
+- **Implementation session (main thread)** — owns *all* code changes, commits, and **Status updates in this file**. When it fixes an item, it flips that item's Status to `FIXED` and appends what was actually done. It never marks its own work reviewed.
+- **Review session** — owns *findings only*. It adds new entries (Finding + Guardrail + evidence) and appends **Review note** lines to existing entries, but does **not** fix code and does **not** flip Status to `FIXED`. Its job is to independently verify claims rather than accept them, per CLAUDE.md's "review and pressure-test agent-written code before merging — don't accept on trust."
+
+Practical consequence: an item marked `FIXED` means *implemented*, not *verified*. A separate **Review note** on the entry is what records independent verification — and, as S7/S8/S9 showed (a correctly-present CSP header that still broke the OAuth flow), "implemented" and "actually works end-to-end" are not the same claim.
