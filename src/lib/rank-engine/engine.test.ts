@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { addDays } from "./date-utils";
 import {
   dailyCompletion,
   isPaused,
+  personalDevelopmentScore,
   rankProgress,
   startPause,
   streak,
@@ -37,6 +39,11 @@ function freshWindow(overrides: Partial<RankWindow> = {}): RankWindow {
     pauseUsed: false,
     ...overrides,
   };
+}
+
+// N consecutive date strings starting at `start`, inclusive.
+function datesFrom(start: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => addDays(start, i));
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +169,24 @@ describe("streak", () => {
     });
     expect(streak([goal], entries, window, "2026-01-03")).toBe(1);
   });
+
+  it("does not break on unscheduled days between a weekly goal's due dates (audit C2)", () => {
+    // Weekly goal due every Thursday, starting 2026-01-01. Four consecutive
+    // perfect due-days, with six unscheduled (null) days between each one.
+    // Before the fix, the first null day encountered walking backward from
+    // "today" terminated the loop, capping the streak at 1.
+    const weekly = dailyGoal("w1", { frequency: "weekly", startDate: "2026-01-01" });
+    const dueDates = ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"];
+    const entries = dueDates.map((d) => entry("w1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    expect(streak([weekly], entries, window, "2026-01-22")).toBe(4);
+  });
+
+  it("returns 0 immediately for a user with no goals, rather than walking backward forever", () => {
+    // Every day is null with no goals at all, so nothing bounds the walk
+    // except this early return -- without it, this call would hang.
+    expect(streak([], [], freshWindow(), "2026-06-01")).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -217,6 +242,95 @@ describe("rankProgress", () => {
     const result = rankProgress([goal], entries, window, "2026-01-03");
     expect(result.window.graceUsed).toBe(0);
     expect(result.graceRemaining).toBe(2);
+  });
+
+  it("does not reset window_start on unscheduled days (weekly-only, 4 perfect weeks) (audit C1)", () => {
+    // Same weekly-goal setup as the streak test above. Before the fix, the
+    // ~18 unscheduled days across these 4 weeks were each charged as a miss,
+    // resetting window_start well before the 4th due date -- a weekly-only
+    // user could never accumulate rank progress at all.
+    const weekly = dailyGoal("w1", { frequency: "weekly", startDate: "2026-01-01" });
+    const dueDates = ["2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"];
+    const entries = dueDates.map((d) => entry("w1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const result = rankProgress([weekly], entries, window, "2026-01-22");
+    expect(result.window.windowStart).toBe("2026-01-01");
+    expect(result.window.graceUsed).toBe(0);
+    expect(result.graceRemaining).toBe(2);
+  });
+
+  it("does not reset window_start on unscheduled days (monthly-only, 3 perfect months)", () => {
+    const monthly = dailyGoal("m1", { frequency: "monthly", startDate: "2026-01-15" });
+    const dueDates = ["2026-01-15", "2026-02-15", "2026-03-15"];
+    const entries = dueDates.map((d) => entry("m1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-15" });
+    const result = rankProgress([monthly], entries, window, "2026-03-15");
+    expect(result.window.windowStart).toBe("2026-01-15");
+    expect(result.window.graceUsed).toBe(0);
+  });
+
+  it("clamps pct at 100 once the requirement is exceeded, and reports completed (audit C3)", () => {
+    const goal = dailyGoal("g1");
+    const dates = datesFrom("2026-01-01", 200); // far past D-rank's 60-day requirement
+    const entries = dates.map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: dates[0] });
+    const today = dates[dates.length - 1];
+    const result = rankProgress([goal], entries, window, today);
+    expect(result.pct).toBe(100);
+    expect(result.completed).toBe(true);
+    expect(result.window.graceUsed).toBe(0);
+  });
+
+  it("does not divide by zero for a schema-illegal but engine-reachable rank_target of E", () => {
+    const goal = dailyGoal("g1");
+    const entries = [entry("g1", "2026-01-01", true)];
+    const window = freshWindow({ rankTarget: "E", windowStart: "2026-01-01" });
+    const result = rankProgress([goal], entries, window, "2026-01-01");
+    expect(Number.isFinite(result.pct)).toBe(true);
+    expect(result.pct).toBeGreaterThanOrEqual(0);
+    expect(result.pct).toBeLessThanOrEqual(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// personalDevelopmentScore
+// ---------------------------------------------------------------------------
+
+describe("personalDevelopmentScore", () => {
+  it("blends daily completion, streak, and rank progress into the documented weighted formula", () => {
+    const goal = dailyGoal("g1");
+    const dates = datesFrom("2026-01-01", 14);
+    const entries = dates.map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: dates[0] });
+    const today = dates[dates.length - 1];
+
+    const daily = dailyCompletion([goal], entries, today);
+    const rank = rankProgress([goal], entries, window, today);
+    const streakCount = streak([goal], entries, window, today);
+    const expected = Math.round(
+      0.5 * rank.pct + 0.3 * Math.min((streakCount / 30) * 100, 100) + 0.2 * (daily ?? 100),
+    );
+
+    expect(personalDevelopmentScore([goal], entries, window, today)).toBe(expected);
+  });
+
+  it("treats an unscheduled today as neutral, not a drag, in the daily component", () => {
+    const weekly = dailyGoal("w1", { frequency: "weekly", startDate: "2026-01-01" });
+    const entries = ["2026-01-01", "2026-01-08", "2026-01-15"].map((d) =>
+      entry("w1", d, true),
+    );
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const today = "2026-01-16"; // Friday, not due -- dailyCompletion is null here
+
+    expect(dailyCompletion([weekly], entries, today)).toBeNull();
+
+    const rank = rankProgress([weekly], entries, window, today);
+    const streakCount = streak([weekly], entries, window, today);
+    const expected = Math.round(
+      0.5 * rank.pct + 0.3 * Math.min((streakCount / 30) * 100, 100) + 0.2 * 100,
+    );
+
+    expect(personalDevelopmentScore([weekly], entries, window, today)).toBe(expected);
   });
 });
 

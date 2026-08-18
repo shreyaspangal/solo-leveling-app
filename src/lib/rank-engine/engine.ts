@@ -76,17 +76,37 @@ export function streak(
   window: RankWindow,
   uptoDate: string,
 ): number {
+  if (goals.length === 0) return 0;
+
+  // Nothing before the earliest goal's start date was ever scheduled or
+  // unscheduled in any meaningful sense -- dailyCompletion is null for all
+  // of it for the same structural reason. Used as the walk's lower bound
+  // below: without it, a null day no longer terminates the loop (see ADR-002
+  // addendum), so an all-unscheduled history would walk backward forever.
+  const earliestGoalStart = goals.reduce(
+    (min, g) => (g.startDate < min ? g.startDate : min),
+    goals[0].startDate,
+  );
+
   let check = uptoDate;
   if (dailyCompletion(goals, entries, uptoDate) !== 100) {
     check = addDays(check, -1);
   }
 
   let n = 0;
-  while (isPaused(window, check) || dailyCompletion(goals, entries, check) === 100) {
+  while (check >= earliestGoalStart) {
     if (isPaused(window, check)) {
       check = addDays(check, -1);
       continue;
     }
+    const completion = dailyCompletion(goals, entries, check);
+    if (completion === null) {
+      // Unscheduled day -- neutral, same treatment as a paused day: doesn't
+      // extend the streak, doesn't break it either. ADR-002 addendum §A.
+      check = addDays(check, -1);
+      continue;
+    }
+    if (completion !== 100) break; // a real miss still ends the streak
     n += 1;
     check = addDays(check, -1);
   }
@@ -97,6 +117,7 @@ export interface RankProgressResult {
   pct: number;
   graceRemaining: number;
   window: RankWindow;
+  completed: boolean;
 }
 
 export function rankProgress(
@@ -111,7 +132,9 @@ export function rankProgress(
   while (date <= today) {
     if (!isPaused(w, date)) {
       const completion = dailyCompletion(goals, entries, date);
-      if (completion !== 100) {
+      // Unscheduled day -- neutral, same treatment as a paused day: doesn't
+      // consume grace. ADR-002 addendum §A.
+      if (completion !== null && completion !== 100) {
         w.graceUsed += 1;
         if (w.graceUsed > 2) {
           // 3rd miss restarts the countdown for the *next* rank rather than
@@ -124,14 +147,48 @@ export function rankProgress(
     date = addDays(date, 1);
   }
 
-  const requiredDays = RANK_REQUIREMENT_DAYS[w.rankTarget];
+  // Floor of 1 guards against RANK_REQUIREMENT_DAYS["E"] (0) dividing by
+  // zero -- "E" is schema-illegal as a rank_target (S3) but this is a pure
+  // function with no schema in front of it. ADR-002 addendum §B.
+  const requiredDays = Math.max(1, RANK_REQUIREMENT_DAYS[w.rankTarget]);
   const elapsed = daysBetween(w.windowStart, today);
+  const pct = Math.min(100, Math.max(0, Math.round((elapsed / requiredDays) * 100)));
 
   return {
-    pct: Math.round((elapsed / requiredDays) * 100),
+    pct,
     graceRemaining: 2 - w.graceUsed,
     window: w,
+    completed: pct >= 100,
   };
+}
+
+// Display-layer aggregate for the dashboard's "Overall development score"
+// tile (PRD). Deliberately does not feed back into rank_target/grace_used/
+// window_start -- a fourth function layered on the other three, never a
+// fourth code path recomputing their logic. ADR-002 addendum §C.
+const PDS_STREAK_NORMALIZATION_DAYS = 30;
+const PDS_WEIGHTS = { rank: 0.5, streak: 0.3, daily: 0.2 };
+
+export function personalDevelopmentScore(
+  goals: Goal[],
+  entries: GoalEntry[],
+  window: RankWindow,
+  today: string,
+): number {
+  const daily = dailyCompletion(goals, entries, today);
+  const dailyComponent = daily ?? 100; // unscheduled today is neutral, not a drag
+
+  const rankComponent = rankProgress(goals, entries, window, today).pct;
+  const streakComponent = Math.min(
+    (streak(goals, entries, window, today) / PDS_STREAK_NORMALIZATION_DAYS) * 100,
+    100,
+  );
+
+  return Math.round(
+    PDS_WEIGHTS.rank * rankComponent +
+      PDS_WEIGHTS.streak * streakComponent +
+      PDS_WEIGHTS.daily * dailyComponent,
+  );
 }
 
 export function startPause(window: RankWindow, days: number, today: string): RankWindow {
