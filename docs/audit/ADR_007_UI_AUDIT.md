@@ -1076,3 +1076,50 @@ directly works and is the fallback to use rather than settling for curl —
 (`~/.npm/_npx/<hash>/node_modules/playwright`) and launching with `channel: "chrome"`. Session state
 for authenticated pages can be minted headlessly with `createServerClient` from `@supabase/ssr` and
 a Map-backed cookie jar, then replayed as `addCookies` (browser) or a `Cookie:` header (curl).
+
+---
+
+## U18 (`2814a80`) — VERIFIED FIXED. **Phase 5 CLEAR.**
+
+Real browser, both motion modes, both routes.
+
+| check | `/dashboard` | `/quests/new` |
+|---|---|---|
+| `aria-current="page"` on the active link | Home ✅ | Create Quest ✅ |
+| the other link | `null` ✅ | `null` ✅ |
+| indicator `aria-hidden` | `true` ✅ | `true` ✅ |
+
+`aria-current` genuinely **follows navigation** rather than being rendered once — checked after a
+client-side route change, not just on first load.
+
+The indicator still animates now that it's `aria-hidden` — 6 distinct x-positions under normal
+motion, 2 under `reduce`, matching pre-fix behaviour exactly. Marking it hidden did not disturb the
+`layoutId` transition. `/dashboard` 200, 0 console errors in both modes.
+
+**Phase 5 is CLEAR.** Open in this workstream: **U17** (hydration mismatch + flash on the dormant
+rank-up reveal — deferred until a real promotion trigger exists) and **U2** (Motion pins
+`style-src 'unsafe-inline'`; for whenever S2 is worked).
+
+---
+
+## Phase 6 — sign-out (pending commit)
+
+`signOut` (`src/app/actions.ts`, `"use server"`) calls the server client's `auth.signOut()`, which
+revokes the session server-side via this request's auth cookies -- not just clearing client state.
+Wired as a form POST (`<form action={signOut}>`), not a link, per the auditer's own suggestion: a
+GET-triggered sign-out is prefetchable and CSRF-triggerable, a form POST through a Server Action is
+neither, and it matches how every other mutation in this app is already built.
+
+Placed in `NavShell`, right-aligned, real text label ("Sign out"), not a bare icon.
+
+**Scope note, not silent:** ADR-007's original plan described a sidebar (desktop) + bottom-nav
+(mobile) split. What's actually built is a single responsive row -- reasonable for two nav items
+plus sign-out, but it is a simplification from the plan as written, not the literal split. Flagging
+it rather than letting the difference pass unremarked; open to revisiting if that's the wrong call
+now that there's a third item in the nav.
+
+tsc/eslint/vitest(105/105)/build clean, `src/lib/**` guardrail holds (new file is under `src/app/`,
+not `src/lib/`). Not browser-tested by the implementation session -- the two things worth checking
+hardest per the auditer's own front-run (session actually dead server-side, not just client-side;
+reachable + labelled in both viewports) are exactly the kind of thing to verify directly rather than
+reason about from the diff.
