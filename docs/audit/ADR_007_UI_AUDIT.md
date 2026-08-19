@@ -832,3 +832,30 @@ FIXED — indicator changed to `rounded-l-full` (left corners only). The outer t
 `overflow-hidden` clips the right edge regardless of the indicator's own radius, so there's no
 visual cost at 100%; at low values the right edge is now square instead of rounded, so a narrow
 fill reads as a sliver of bar rather than a circle. **Raised:** 2026-08-19
+
+---
+
+## U15 (`2da26f5`) — VERIFIED FIXED
+
+| check | result |
+|---|---|
+| indicator corner radii | left rounded, right `0px` ✅ |
+| shape at 2% | rounded-left sliver with a flat right edge — a bar, not a dot ✅ |
+| width sweep 0 / 1 / 2 / 50 / 100% | scales linearly; at 100% fills exactly, `0px` overflow past the track ✅ |
+| track `overflow` | `hidden`, so the right edge is clipped regardless ✅ |
+| console | 0 errors, 0 warnings ✅ |
+
+The "no visual cost at 100%" reasoning in the comment holds — measured, not taken on trust.
+105/105, `tsc` clean, `eslint` clean.
+
+---
+
+## Phase 4 slice 3 — glow effect (pending commit)
+
+`Card`'s `brackets` prop now also applies a CSS-only glow (`shadow-[0_0_32px_-8px_var(--primary)]`,
+no Motion, per `pick-ui-library`), bundled with the corner brackets rather than a separate prop —
+both mark the same "prominent panel" treatment the reference applies together. Box-shadow isn't
+clipped by the card's own `overflow-hidden` (that only clips content, not the element's own shadow).
+Same scope as the brackets: the dashboard's "Your Progress" card only.
+
+tsc/eslint/vitest(105/105)/build clean. Awaiting owner review before commit.
