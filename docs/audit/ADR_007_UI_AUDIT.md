@@ -1022,3 +1022,57 @@ not just this instance of it.
 tsc/eslint/vitest(105/105)/build clean -- unchanged from before, since (per the auditer's own
 finding) none of these would have caught the original bug either. Whether `/dashboard` actually
 loads for a signed-in user again is the auditer's check to make, not claimed here.
+
+---
+
+## Phase 5 (`2854488`) — **U16 FIXED**, NavShell GREEN, one a11y finding
+
+Verified in a real browser (Chrome via Playwright, both motion modes), not only by status code.
+
+**U16 — VERIFIED FIXED.** `/dashboard` returns **200** for a signed-in user *with a RankWindow* —
+the exact condition that produced the 500 — and renders `Rank E`. `/quests/new` also 200. 0 console
+errors. `currentRankFor` is gone as an export; `RankBadge` takes `rankTarget` and derives internally,
+so the cross-boundary call is now structurally impossible rather than merely corrected.
+
+**NavShell — GREEN.** Two items (Home → `/dashboard`, Create Quest → `/quests/new`), matching
+ADR-007's "wired to only the routes that exist".
+
+The `layoutId` indicator behaves correctly in both modes — measured by sampling the indicator's
+x-position every 40ms across the transition:
+
+| mode | distinct positions observed | reading |
+|---|---|---|
+| `no-preference` | 6 — `560.5 → 564.1 → 584.5 → 603.2 → 620.1 → 621.3` | smooth slide ✅ |
+| `reduce` | 2 — `560.5 → 621.3` | jumps straight to the target ✅ |
+
+So `useReducedMotion` genuinely disables the layout animation rather than merely being wired up.
+(An earlier, coarser sample at a single 120ms mark showed identical transforms in both modes and
+looked like a failure — re-tested at finer resolution before filing, and it was a sampling artifact.
+Recorded because the first reading was wrong, not because the second is surprising.)
+
+---
+
+## U18 — nav links carry no `aria-current`
+
+**Severity:** Low · **Status:** FIXED — `aria-current="page"` added to the active link;
+`aria-hidden` added to the indicator span now that `aria-current` carries the meaning, per the
+finding's own pairing suggestion. **Raised:** 2026-08-19
+
+Both nav links return `null` for `aria-current`, in both motion modes and on both routes. The active
+route is communicated **only** by the sliding indicator — i.e. only visually.
+
+Consequences: a screen-reader user gets no indication of which nav item is current, and under
+reduced motion the indicator is the sole cue and it doesn't move gradually, so there's nothing to
+notice. `aria-current="page"` on the active link is the standard fix and costs one attribute.
+
+Worth pairing with the fix: the indicator is a decorative `<span>`, so it should also be
+`aria-hidden` once `aria-current` carries the meaning.
+
+---
+
+**Tooling note for future passes:** the Playwright MCP server dropped mid-pass. Driving Chrome
+directly works and is the fallback to use rather than settling for curl —
+`npx -y playwright@1.56.0`, then a Node script importing `playwright` from the npx cache
+(`~/.npm/_npx/<hash>/node_modules/playwright`) and launching with `channel: "chrome"`. Session state
+for authenticated pages can be minted headlessly with `createServerClient` from `@supabase/ssr` and
+a Map-backed cookie jar, then replayed as `addCookies` (browser) or a `Cookie:` header (curl).

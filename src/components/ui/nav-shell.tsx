@@ -27,6 +27,7 @@ export function NavShell() {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "relative rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
               active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
@@ -34,6 +35,7 @@ export function NavShell() {
           >
             {active && (
               <motion.span
+                aria-hidden
                 layoutId="nav-active-indicator"
                 layout={!shouldReduceMotion}
                 className="absolute inset-0 -z-10 rounded-lg bg-primary/10"
