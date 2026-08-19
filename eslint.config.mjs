@@ -18,6 +18,10 @@ const eslintConfig = defineConfig([
     // lint (discovered when it produced 150+ prefer-const/no-var errors
     // the moment local Supabase was first started).
     "supabase/.temp/**",
+    // docs/reference/client-ui-prototype.tsx is the client's UI/UX reference,
+    // saved verbatim -- not wired into the app (its own header comment says
+    // so explicitly), so it isn't ours to lint either.
+    "docs/reference/**",
   ]),
 ]);
 

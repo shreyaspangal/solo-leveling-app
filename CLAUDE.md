@@ -40,18 +40,25 @@ below exists to test that cheaply before investing in anything else.
 - **Finance and Fitness stay structurally separate**, deferred to Phase 2. They have real
   mechanical requirements (loan/₹ math, ingredient-level nutrition calc) the generic engine
   can't absorb. Not a priority cut — a genuine architectural difference.
-- **Interface stays plain through Phase 2.** No voice input, no bespoke visual identity/theme,
-  no elaborate motion/animation layer. Clean, functional, responsive (mobile + desktop). Visual
-  and voice investment is explicitly deferred to Phase 3+, and only once the plain version has
-  real usage data suggesting it's worth building on.
+- **Interface stayed plain through Phase 1, superseded for the UI/UX layer by ADR-007
+  (2026-08-19).** The original rationale still holds as the reason Phase 0/1 built plain first
+  (voice input, and any visual/motion investment beyond ADR-007's scope, are still deferred past
+  Phase 3+ per that reasoning) — but the project owner has since given an explicit, direct
+  instruction to replicate the client's reference prototype's UI styles, components, navigation,
+  and (two specific) animations now, ahead of Phase 2, per ADR-007. This is a presentation-layer
+  change only: no engine, Server Action, or Supabase-query logic is affected, and CLAUDE.md's
+  "binding until changed... or an explicit change from the project owner" clause is exactly what
+  was invoked here — see ADR-007 for the full scope and reasoning.
 - **Multi-user from day 1** (not a single-user personal tool) — per ADR-003, every table is
   RLS-scoped to `auth.uid()` from the start.
-- **A reference UX prototype exists** (a heavily-themed single-file React demo covering all 5
-  domains) but should **not** be used as an implementation reference. It predates the ADRs, uses
-  a hardcoded rank formula (not ADR-002's), has no grace/pause logic, uses per-domain progress
-  functions that ADR-001 specifically avoids, and invests in visual novelty this project
-  explicitly sequenced for later. Useful only for: the global date-filter interaction pattern,
-  and the ingredient-based meal macro calculator UX.
+- **The reference UX prototype** (`docs/reference/client-ui-prototype.tsx`, a heavily-themed
+  single-file React demo covering all 5 domains) is now the explicit target for the **UI/UX
+  layer only** — components, layout, navigation structure, and the two animations ADR-007 scopes
+  in — per the project owner's 2026-08-19 instruction. It remains **not** a logic reference: it
+  predates the ADRs, uses a hardcoded rank formula (not ADR-002's), has no grace/pause logic, and
+  uses per-domain progress functions that ADR-001 specifically avoids. Every Server Component,
+  Server Action, Supabase query, and the ADR-001/002/003 data model stay exactly as built — see
+  ADR-007 for the full split.
 
 ## Build order
 
