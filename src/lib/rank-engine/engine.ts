@@ -44,15 +44,35 @@ export function scheduledOn(goal: Goal, date: string): boolean {
   }
 }
 
-// Goals active on `date` (started, not yet past their targetDate). Shared
-// by dailyCompletion, streak, and rankProgress -- audit finding C4 was
-// exactly this predicate drifting out of sync between callers (rankProgress
-// checked completion === null instead of asking this directly, conflating
-// "no active goals" with "goals active but nothing due").
+// Goals active on `date` (started, not yet past their targetDate, and
+// daily-tracked). Shared by dailyCompletion, streak, and rankProgress --
+// audit finding C4 was exactly this predicate drifting out of sync between
+// callers (rankProgress checked completion === null instead of asking this
+// directly, conflating "no active goals" with "goals active but nothing
+// due"). The dailyTracking condition is ADR-002's addendum (2026-08-19,
+// audit finding P2-1): ADR-001 says a daily_tracking=false goal is "tracked
+// as overall % only, no per-day checklist" -- that means no per-day
+// scoring either, so it's excluded from the whole engine at this one choke
+// point, the same way expired/not-yet-started goals already are.
 function activeGoalsOn(goals: Goal[], date: string): Goal[] {
   return goals.filter(
-    (g) => g.startDate <= date && (g.targetDate === null || g.targetDate >= date),
+    (g) =>
+      g.startDate <= date && (g.targetDate === null || g.targetDate >= date) && g.dailyTracking,
   );
+}
+
+// Shared scoring core: given the goals expected today and the entries that
+// apply to exactly that date (however they were sourced -- a flat filter
+// for a single-date query, or an indexed lookup inside a multi-day loop),
+// compute the percentage. Keeping this separate from both dailyCompletion
+// and the indexed loop path is what lets SC3's fix (below) avoid
+// duplicating the actual scoring logic, not just the entries lookup.
+function completionFor(expected: Goal[], entriesOnDate: GoalEntry[]): number {
+  const expectedIds = new Set(expected.map((g) => g.id));
+  const completed = entriesOnDate.filter(
+    (e) => expectedIds.has(e.goalId) && e.completed,
+  ).length;
+  return Math.round((completed / expected.length) * 100);
 }
 
 export function dailyCompletion(
@@ -66,12 +86,44 @@ export function dailyCompletion(
   const expected = activeGoals.filter((g) => scheduledOn(g, date));
   if (expected.length === 0) return null; // nothing due today = no score, not 0%
 
-  const expectedIds = new Set(expected.map((g) => g.id));
-  const completed = entries.filter(
-    (e) => expectedIds.has(e.goalId) && e.date === date && e.completed,
-  ).length;
+  const entriesOnDate = entries.filter((e) => e.date === date);
+  return completionFor(expected, entriesOnDate);
+}
 
-  return Math.round((completed / expected.length) * 100);
+// SC3: streak/rankProgress walk up to 730 days, and dailyCompletion's flat
+// `entries.filter(e => e.date === date)` re-scans the ENTIRE entries array
+// on every single day of that walk -- O(days x goals x entries). Indexing
+// once per call (O(entries)) and doing an O(1) map lookup per day instead
+// turns the entries side of the cost into O(entries) total, not
+// O(days x entries). The `activeGoals`/`scheduledOn` side of the cost stays
+// a fresh O(goals) filter per day -- goal counts are small (SC3's own
+// estimate: "3 daily goals"), so that part was never the actual blowup and
+// doesn't need indexing.
+function indexEntriesByDate(entries: GoalEntry[]): Map<string, GoalEntry[]> {
+  const byDate = new Map<string, GoalEntry[]>();
+  for (const e of entries) {
+    const forDate = byDate.get(e.date);
+    if (forDate) {
+      forDate.push(e);
+    } else {
+      byDate.set(e.date, [e]);
+    }
+  }
+  return byDate;
+}
+
+function dailyCompletionIndexed(
+  goals: Goal[],
+  entriesByDate: Map<string, GoalEntry[]>,
+  date: string,
+): number | null {
+  const activeGoals = activeGoalsOn(goals, date);
+  if (activeGoals.length === 0) return null;
+
+  const expected = activeGoals.filter((g) => scheduledOn(g, date));
+  if (expected.length === 0) return null;
+
+  return completionFor(expected, entriesByDate.get(date) ?? []);
 }
 
 export function isPaused(window: RankWindow, date: string): boolean {
@@ -97,8 +149,12 @@ export function streak(
     goals[0].startDate,
   );
 
+  // SC3: index once, not per day of the walk -- see indexEntriesByDate's
+  // own comment.
+  const entriesByDate = indexEntriesByDate(entries);
+
   let check = uptoDate;
-  if (dailyCompletion(goals, entries, uptoDate) !== 100) {
+  if (dailyCompletionIndexed(goals, entriesByDate, uptoDate) !== 100) {
     check = addDays(check, -1);
   }
 
@@ -118,7 +174,7 @@ export function streak(
       // addendum §D.
       break;
     }
-    const completion = dailyCompletion(goals, entries, check);
+    const completion = dailyCompletionIndexed(goals, entriesByDate, check);
     if (completion === null) {
       // Goals active, nothing due today -- neutral, same treatment as a
       // paused day: doesn't extend the streak, doesn't break it either.
@@ -156,11 +212,15 @@ export function rankProgress(
   // ADR-002 addendum §D.
   let qualifyingDays = 0;
 
+  // SC3: index once, not per day of the walk (up to 730 days for S-rank) --
+  // see indexEntriesByDate's own comment.
+  const entriesByDate = indexEntriesByDate(entries);
+
   let date = w.windowStart;
   while (date <= today) {
     if (!isPaused(w, date) && activeGoalsOn(goals, date).length > 0) {
       qualifyingDays += 1;
-      const completion = dailyCompletion(goals, entries, date);
+      const completion = dailyCompletionIndexed(goals, entriesByDate, date);
       // Unscheduled day (goals active, nothing due) -- neutral, same
       // treatment as a paused day: doesn't consume grace. ADR-002 addendum
       // §A. (completion can't be null here -- activeGoalsOn is non-empty --

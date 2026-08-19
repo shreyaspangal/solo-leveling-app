@@ -21,6 +21,7 @@ function dailyGoal(id: string, overrides: Partial<Goal> = {}): Goal {
     frequency: "daily",
     startDate: "2026-01-01",
     targetDate: null,
+    dailyTracking: true,
     ...overrides,
   };
 }
@@ -113,6 +114,23 @@ describe("dailyCompletion", () => {
       dailyCompletion([notStartedYet, alreadyEnded, active], entries, "2026-01-05"),
     ).toBe(100);
   });
+
+  it("excludes a daily_tracking=false goal entirely, even when otherwise scheduled (ADR-002 addendum, audit P2-1)", () => {
+    const notTracked = dailyGoal("not-tracked", { dailyTracking: false });
+    // The only goal is not daily-tracked -- same as zero active goals, not
+    // 0% (there is nothing to score against, per ADR-001's "overall % only,
+    // no per-day checklist").
+    expect(dailyCompletion([notTracked], [], "2026-01-05")).toBeNull();
+  });
+
+  it("scores only the daily_tracking=true goal when both are scheduled the same day", () => {
+    const tracked = dailyGoal("tracked");
+    const notTracked = dailyGoal("not-tracked", { dailyTracking: false });
+    // notTracked has no entry at all -- if it were still counted, this would
+    // be 50%, not 100%.
+    const entries = [entry("tracked", "2026-01-05", true)];
+    expect(dailyCompletion([tracked, notTracked], entries, "2026-01-05")).toBe(100);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -198,6 +216,30 @@ describe("streak", () => {
     const entries = datesFrom("2026-01-01", 10).map((d) => entry("g1", d, true));
     const window = freshWindow({ windowStart: "2026-01-01" });
     expect(streak([goal], entries, window, "2026-06-10")).toBe(0);
+  });
+
+  it("returns 0 for an account whose only goal is daily_tracking=false (ADR-002 addendum, audit P2-1)", () => {
+    // goals.length is 1, so the goals-empty early return does NOT fire --
+    // this exercises the activeGoalsOn-based break path instead, which
+    // must independently produce the same zero result.
+    const notTracked = dailyGoal("g1", { dailyTracking: false });
+    const entries = datesFrom("2026-01-01", 10).map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    expect(streak([notTracked], entries, window, "2026-01-10")).toBe(0);
+  });
+
+  it("counts only the daily_tracking=true goal's chain when both are perfect every day", () => {
+    const tracked = dailyGoal("tracked");
+    const notTracked = dailyGoal("not-tracked", { dailyTracking: false });
+    // notTracked has no entries at all -- if it still counted as active, a
+    // day with only the tracked goal completed would still read 100% (1/1
+    // expected), so this alone wouldn't distinguish the bug. The real
+    // assertion is the streak length itself staying correct across days
+    // where only the tracked goal has an entry.
+    const dates = datesFrom("2026-01-01", 4);
+    const entries = dates.map((d) => entry("tracked", d, true));
+    const window = freshWindow();
+    expect(streak([tracked, notTracked], entries, window, "2026-01-04")).toBe(4);
   });
 });
 
@@ -330,6 +372,30 @@ describe("rankProgress", () => {
     expect(result.completed).toBe(false);
     expect(result.window.graceUsed).toBe(0);
   });
+
+  it("does not accrue any qualifying days for an account whose only goal is daily_tracking=false (ADR-002 addendum, audit P2-1)", () => {
+    const notTracked = dailyGoal("g1", { dailyTracking: false });
+    const entries = datesFrom("2026-01-01", 60).map((d) => entry("g1", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const today = "2026-03-01"; // well past D-rank's 60-day requirement
+    const result = rankProgress([notTracked], entries, window, today);
+    expect(result.pct).toBe(0);
+    expect(result.completed).toBe(false);
+    expect(result.window.graceUsed).toBe(0);
+  });
+
+  it("a mixed tracked/untracked goal set never lets the untracked goal consume grace", () => {
+    const tracked = dailyGoal("tracked");
+    const notTracked = dailyGoal("not-tracked", { dailyTracking: false });
+    // notTracked never has an entry -- if it were still "active", every one
+    // of these days would be a 50% miss and burn grace fast.
+    const dates = datesFrom("2026-01-01", 5);
+    const entries = dates.map((d) => entry("tracked", d, true));
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    const result = rankProgress([tracked, notTracked], entries, window, "2026-01-05");
+    expect(result.window.graceUsed).toBe(0);
+    expect(result.window.windowStart).toBe("2026-01-01");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -397,6 +463,12 @@ describe("personalDevelopmentScore", () => {
 
     expect(personalDevelopmentScore([goal], entries, window, today)).toBe(expected);
   });
+
+  it("renormalizes for an account whose only goal is daily_tracking=false, same as zero goals (ADR-002 addendum, audit P2-1)", () => {
+    const notTracked = dailyGoal("g1", { dailyTracking: false });
+    const window = freshWindow({ windowStart: "2026-01-01" });
+    expect(personalDevelopmentScore([notTracked], [], window, "2026-06-10")).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -420,5 +492,39 @@ describe("startPause", () => {
     expect(isPaused(paused, "2026-01-10")).toBe(true); // day 1
     expect(isPaused(paused, "2026-01-16")).toBe(true); // day 7
     expect(isPaused(paused, "2026-01-17")).toBe(false); // day 8, outside the pause
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SC3: entries-indexing refactor -- correctness at a realistic scale
+// ---------------------------------------------------------------------------
+
+describe("SC3 entries indexing", () => {
+  it("produces the same streak/grace/pct as before at S-rank scale with scattered absent entries", () => {
+    // 800 days (past S-rank's 730-day requirement, well past D-rank's 60),
+    // with entries genuinely ABSENT (not just completed:false) on exactly
+    // two days -- this exercises the Map's "key not found -> []" fallback
+    // path directly, which is the specific class of bug an indexing
+    // refactor could introduce (e.g. a date-key mismatch that silently
+    // drops entries). A dense "every day filled" fixture wouldn't catch
+    // this, since every lookup would succeed regardless.
+    const goal = dailyGoal("g1", { startDate: "2026-01-01" });
+    const dates = datesFrom("2026-01-01", 800);
+    const missDates = new Set([dates[49], dates[399]]); // day 50 and day 400
+    const entries = dates.filter((d) => !missDates.has(d)).map((d) => entry("g1", d, true));
+
+    const window = freshWindow({ windowStart: dates[0] });
+    const today = dates[dates.length - 1]; // day 800
+
+    const result = rankProgress([goal], entries, window, today);
+    expect(result.pct).toBe(100); // clamped -- 800 qualifying days vs. D-rank's 60
+    expect(result.completed).toBe(true);
+    expect(result.window.graceUsed).toBe(2); // exactly 2 misses, never a 3rd -> no reset
+    expect(result.window.windowStart).toBe(dates[0]);
+
+    // Streak breaks at the more recent miss (day 400, index 399) and counts
+    // every hit strictly after it through "today" (day 800, index 799):
+    // 799 - 399 = 400 consecutive days.
+    expect(streak([goal], entries, window, today)).toBe(400);
   });
 });

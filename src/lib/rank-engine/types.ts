@@ -12,6 +12,10 @@ export interface Goal {
   frequency: Frequency;
   startDate: string;
   targetDate: string | null;
+  // ADR-001: "if false, goal is tracked as overall % only, no per-day
+  // checklist." ADR-002 addendum (2026-08-19, audit finding P2-1): the
+  // engine excludes these goals entirely, not just the checklist UI.
+  dailyTracking: boolean;
 }
 
 export interface GoalEntry {
