@@ -1,26 +1,119 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-rajdhani);
+  --font-mono: var(--font-chakra-petch);
+  --font-heading: var(--font-chakra-petch);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+ * Dark-only theme (ADR-007) -- the reference prototype has no light variant,
+ * so there's nothing to build one from. `--radius: 2px` is a deliberate
+ * departure from shadcn's rounded default, central to the reference's sharp
+ * "HUD" aesthetic. Values are identical in `:root` and `.dark` on purpose:
+ * `<html>` always carries the `dark` class (see layout.tsx), but some
+ * shadcn-sourced component internals may reference `.dark`-scoped
+ * variables specifically -- duplicating avoids that becoming a trap for
+ * whichever definition doesn't happen to be active.
+ *
+ * Palette translated from the client's reference prototype
+ * (docs/reference/client-ui-prototype.tsx)'s CSS custom properties into
+ * OKLCH: --sys -> --primary, --monarch -> --secondary, --gold -> --accent,
+ * --danger -> --destructive, --green -> --success (new, not a standard
+ * shadcn token), --line -> --border.
+ */
+:root,
+.dark {
+  --background: oklch(0.1297 0.0171 268.35); /* --bg #05070e */
+  --foreground: oklch(0.929 0.0338 263.58); /* --text #dce8ff */
+  --card: oklch(0.2142 0.0496 265.39); /* panel background #0e1830 */
+  --card-foreground: oklch(0.929 0.0338 263.58);
+  --popover: oklch(0.2142 0.0496 265.39);
+  --popover-foreground: oklch(0.929 0.0338 263.58);
+  --primary: oklch(0.798 0.1378 224.64); /* --sys #38cfff */
+  --primary-foreground: oklch(0.1297 0.0171 268.35);
+  --secondary: oklch(0.6123 0.2294 291.39); /* --monarch #8b5cff */
+  --secondary-foreground: oklch(0.9629 0.0182 250.59);
+  --muted: oklch(0.1826 0.0298 267); /* between background and card */
+  --muted-foreground: oklch(0.6016 0.0645 266.62); /* --muted #6f80a8 */
+  --accent: oklch(0.8754 0.1416 86.29); /* --gold #ffcf5c */
+  --accent-foreground: oklch(0.1297 0.0171 268.35);
+  --destructive: oklch(0.692 0.1996 17.04); /* --danger #ff5a6e */
+  --destructive-foreground: oklch(0.9629 0.0182 250.59);
+  --success: oklch(0.8261 0.1649 159.79); /* --green #48e6a0 */
+  --success-foreground: oklch(0.1297 0.0171 268.35);
+  --border: oklch(0.6682 0.1439 255.59 / 22%); /* --line rgba(84,150,235,.22) */
+  --input: oklch(0.6682 0.1439 255.59 / 22%);
+  --ring: oklch(0.798 0.1378 224.64);
+  --chart-1: oklch(0.798 0.1378 224.64);
+  --chart-2: oklch(0.6123 0.2294 291.39);
+  --chart-3: oklch(0.8754 0.1416 86.29);
+  --chart-4: oklch(0.8261 0.1649 159.79);
+  --chart-5: oklch(0.692 0.1996 17.04);
+  --radius: 2px;
+  --sidebar: oklch(0.1297 0.0171 268.35);
+  --sidebar-foreground: oklch(0.929 0.0338 263.58);
+  --sidebar-primary: oklch(0.798 0.1378 224.64);
+  --sidebar-primary-foreground: oklch(0.1297 0.0171 268.35);
+  --sidebar-accent: oklch(0.2142 0.0496 265.39);
+  --sidebar-accent-foreground: oklch(0.929 0.0338 263.58);
+  --sidebar-border: oklch(0.6682 0.1439 255.59 / 22%);
+  --sidebar-ring: oklch(0.798 0.1378 224.64);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

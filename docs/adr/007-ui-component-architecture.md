@@ -96,9 +96,11 @@ surface ADR-001/002 require. Verification is via the existing full check suite
 browser pass against real local Postgres re-walking the exact flow the auditer verified for Phase
 1 Slice 4 (signup → setup → dashboard → create/complete a quest → non-daily goal in the
 overall-progress list → `/quests` redirect), confirming zero functional regression. **105/105
-rank-engine tests must stay 105/105** — no file under `src/lib/rank-engine/`, `src/lib/rank-data.ts`,
-or any `actions.ts` should change as part of this work; any diff there means scope crept beyond
-this ADR.
+rank-engine tests must stay 105/105** — no diff anywhere under `src/lib/**` for the duration of this
+work, **except** `src/lib/utils.ts` (shadcn's CLI-generated `cn()` helper) and this file's own
+`src/components/ui/motion.ts` presets module. Any other diff under `src/lib/**` — including
+`today.ts`, `schemas/`, `supabase/`, `rate-limit.ts`, not just the rank engine — means scope crept
+beyond this ADR.
 
 ## Explicitly out of scope
 
