@@ -97,10 +97,11 @@ browser pass against real local Postgres re-walking the exact flow the auditer v
 1 Slice 4 (signup → setup → dashboard → create/complete a quest → non-daily goal in the
 overall-progress list → `/quests` redirect), confirming zero functional regression. **105/105
 rank-engine tests must stay 105/105** — no diff anywhere under `src/lib/**` for the duration of this
-work, **except** `src/lib/utils.ts` (shadcn's CLI-generated `cn()` helper) and this file's own
-`src/components/ui/motion.ts` presets module. Any other diff under `src/lib/**` — including
-`today.ts`, `schemas/`, `supabase/`, `rate-limit.ts`, not just the rank engine — means scope crept
-beyond this ADR.
+work, **except** `src/lib/utils.ts` (shadcn's CLI-generated `cn()` helper) and `src/lib/motion.ts`
+(the plan's own named Motion for React presets module — deliberately not placed under
+`src/components/ui/`, which is shadcn's generated-output directory). Any other diff under
+`src/lib/**` — including `today.ts`, `schemas/`, `supabase/`, `rate-limit.ts`, not just the rank
+engine — means scope crept beyond this ADR.
 
 ## Explicitly out of scope
 

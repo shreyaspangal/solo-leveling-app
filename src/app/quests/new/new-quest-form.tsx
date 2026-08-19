@@ -1,6 +1,11 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { createQuest } from "../actions";
 
 const SUGGESTED_CATEGORIES = [
@@ -53,10 +58,8 @@ export function NewQuestForm() {
 
   return (
     <form action={formAction} className="mt-6 space-y-3">
-      <label className="block text-sm text-zinc-500" htmlFor="title">
-        Quest title
-      </label>
-      <input
+      <Label htmlFor="title">Quest title</Label>
+      <Input
         id="title"
         name="title"
         type="text"
@@ -66,24 +69,20 @@ export function NewQuestForm() {
         maxLength={200}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
+        className="h-11 rounded-lg"
       />
-      <label className="block text-sm text-zinc-500" htmlFor="description">
-        Description (optional)
-      </label>
-      <textarea
+      <Label htmlFor="description">Description (optional)</Label>
+      <Textarea
         id="description"
         name="description"
         maxLength={2000}
         rows={3}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        className="w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-transparent"
+        className="rounded-lg"
       />
-      <label className="block text-sm text-zinc-500" htmlFor="category">
-        Category
-      </label>
-      <input
+      <Label htmlFor="category">Category</Label>
+      <Input
         id="category"
         name="category"
         type="text"
@@ -92,7 +91,7 @@ export function NewQuestForm() {
         list="category-suggestions"
         value={category}
         onChange={(e) => setCategory(e.target.value)}
-        className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
+        className="h-11 rounded-lg"
       />
       <datalist id="category-suggestions">
         {SUGGESTED_CATEGORIES.map((c) => (
@@ -100,15 +99,19 @@ export function NewQuestForm() {
         ))}
       </datalist>
 
-      <label className="block text-sm text-zinc-500" htmlFor="frequency">
-        Frequency
-      </label>
+      {/* Native <select>, not shadcn's Radix-based Select -- this form
+          submits via FormData through a Server Action (createQuest), and a
+          native select's `name`/`value` work with that directly. Radix's
+          Select needs onValueChange + extra wiring to participate in
+          FormData the same way, which is out of scope for this
+          no-functional-change primitive-swap pass (ADR-007). */}
+      <Label htmlFor="frequency">Frequency</Label>
       <select
         id="frequency"
         name="frequency"
         value={frequency}
         onChange={(e) => setFrequency(e.target.value)}
-        className="h-11 w-full rounded-lg border border-zinc-300 bg-transparent px-3 dark:border-zinc-700"
+        className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
       >
         <option value="daily">Daily</option>
         <option value="weekly">Weekly</option>
@@ -116,50 +119,41 @@ export function NewQuestForm() {
         <option value="custom">Custom</option>
       </select>
 
-      <label className="block text-sm text-zinc-500" htmlFor="startDate">
-        Start date
-      </label>
-      <input
+      <Label htmlFor="startDate">Start date</Label>
+      <Input
         id="startDate"
         name="startDate"
         type="date"
         required
         value={today}
         onChange={(e) => setToday(e.target.value)}
-        className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
+        className="h-11 rounded-lg"
       />
 
-      <label className="block text-sm text-zinc-500" htmlFor="targetDate">
-        Target completion date (optional)
-      </label>
-      <input
+      <Label htmlFor="targetDate">Target completion date (optional)</Label>
+      <Input
         id="targetDate"
         name="targetDate"
         type="date"
         value={targetDate}
         onChange={(e) => setTargetDate(e.target.value)}
-        className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
+        className="h-11 rounded-lg"
       />
 
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           name="dailyTracking"
           checked={dailyTracking}
-          onChange={(e) => setDailyTracking(e.target.checked)}
+          onCheckedChange={(checked) => setDailyTracking(checked === true)}
         />
         Track this daily
       </label>
 
-      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="flex h-11 w-full items-center justify-center rounded-full bg-foreground px-5 font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
-      >
+      <Button type="submit" disabled={pending} className="h-11 w-full rounded-full">
         {pending ? "Creating…" : "Create Quest"}
-      </button>
+      </Button>
     </form>
   );
 }

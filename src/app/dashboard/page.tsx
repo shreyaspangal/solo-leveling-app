@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { getRankData } from "@/lib/rank-data";
 import { personalDevelopmentScore, rankProgress, scheduledOn, streak } from "@/lib/rank-engine/engine";
 import type { Goal } from "@/lib/rank-engine/types";
@@ -111,39 +114,34 @@ export default async function DashboardPage() {
       <TimezoneSync />
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-2 text-sm text-zinc-500">{today}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{today}</p>
 
         {/* Rank isn't Quests-specific (ADR-001), unlike the checklist below --
             per the PRD, this is the most prominent section of the dashboard. */}
         {progress === null ? (
-          <p className="mt-6 rounded-lg border border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+          <Card className="mt-6 p-4 text-sm text-muted-foreground">
             <Link href="/setup" className="font-medium text-foreground underline">
               Finish setup
             </Link>{" "}
             to start rank tracking.
-          </p>
+          </Card>
         ) : (
-          <div className="mt-6 rounded-lg border border-zinc-300 p-4 dark:border-zinc-700">
-            <p className="text-sm text-zinc-500">Your Progress</p>
+          <Card className="mt-6 p-4">
+            <p className="text-sm text-muted-foreground">Your Progress</p>
             <p className="mt-1 font-medium">
               {progress.pct}% toward {rankData.window?.rankTarget} rank
             </p>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-foreground"
-                style={{ width: `${Math.min(100, Math.max(0, progress.pct))}%` }}
-              />
-            </div>
-            <p className="mt-2 text-sm text-zinc-500">
+            <Progress value={progress.pct} className="mt-2" />
+            <p className="mt-2 text-sm text-muted-foreground">
               {currentStreak}-day streak · Overall score {score}
             </p>
-          </div>
+          </Card>
         )}
 
-        <h2 className="mt-8 text-sm font-medium text-zinc-500">Today&apos;s Tasks</h2>
+        <h2 className="mt-8 text-sm font-medium text-muted-foreground">Today&apos;s Tasks</h2>
 
         {scheduledToday.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">
+          <p className="mt-3 text-sm text-muted-foreground">
             Nothing scheduled today.{" "}
             <Link href="/quests/new" className="font-medium text-foreground underline">
               Create a quest
@@ -165,29 +163,25 @@ export default async function DashboardPage() {
 
         {overallGoals.length > 0 && (
           <div className="mt-6">
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               Tracked as overall progress (not part of your daily checklist)
             </p>
             <ul className="mt-3 space-y-2">
               {overallGoals.map((g) => (
-                <li
-                  key={g.id}
-                  className="rounded-lg border border-zinc-300 p-4 dark:border-zinc-700"
-                >
-                  <span className="block font-medium">{g.title}</span>
-                  <span className="block text-sm text-zinc-500">{g.category}</span>
+                <li key={g.id}>
+                  <Card className="p-4">
+                    <span className="block font-medium">{g.title}</span>
+                    <span className="block text-sm text-muted-foreground">{g.category}</span>
+                  </Card>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        <Link
-          href="/quests/new"
-          className="mt-6 flex h-11 items-center justify-center rounded-full border border-zinc-300 px-5 font-medium transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-        >
-          Create a Quest
-        </Link>
+        <Button asChild variant="outline" className="mt-6 h-11 w-full rounded-full">
+          <Link href="/quests/new">Create a Quest</Link>
+        </Button>
       </div>
     </div>
   );

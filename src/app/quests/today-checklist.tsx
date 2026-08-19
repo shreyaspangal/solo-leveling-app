@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { upsertGoalEntry } from "./actions";
 
 interface ChecklistGoal {
@@ -39,23 +41,24 @@ export function TodayChecklist({ goals }: { goals: ChecklistGoal[] }) {
   return (
     <ul className="mt-6 space-y-3">
       {goals.map((goal) => (
-        <li key={goal.id} className="rounded-lg border border-zinc-300 p-4 dark:border-zinc-700">
-          <label className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={completed[goal.id]}
-              disabled={pending[goal.id]}
-              onChange={() => toggle(goal.id)}
-              className="mt-0.5 h-4 w-4"
-            />
-            <span>
-              <span className="block font-medium">{goal.title}</span>
-              <span className="block text-sm text-zinc-500">{goal.category}</span>
-            </span>
-          </label>
-          {errors[goal.id] && (
-            <p className="mt-2 text-sm text-red-600">{errors[goal.id]}</p>
-          )}
+        <li key={goal.id}>
+          <Card className="p-4">
+            <label className="flex items-start gap-3">
+              <Checkbox
+                checked={completed[goal.id]}
+                disabled={pending[goal.id]}
+                onCheckedChange={() => toggle(goal.id)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">{goal.title}</span>
+                <span className="block text-sm text-muted-foreground">{goal.category}</span>
+              </span>
+            </label>
+            {errors[goal.id] && (
+              <p className="mt-2 text-sm text-destructive">{errors[goal.id]}</p>
+            )}
+          </Card>
         </li>
       ))}
     </ul>

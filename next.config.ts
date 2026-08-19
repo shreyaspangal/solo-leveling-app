@@ -52,6 +52,13 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Dev-only (audit finding U9, ADR-007 workstream): without this, the dev
+  // server 403s HMR/chunk requests whose Origin header is 127.0.0.1 --
+  // .env.local points the Supabase client at http://127.0.0.1:54321, so
+  // that's the host people here naturally use, and the failure reads as an
+  // application bug rather than a dev-server origin check. No effect on
+  // production (Next.js only consults this in dev).
+  allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [
       {

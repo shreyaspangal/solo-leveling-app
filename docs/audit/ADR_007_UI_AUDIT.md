@@ -223,3 +223,162 @@ Recorded once so each phase verdict can reference them instead of restating:
    complete it → streak and score update → non-daily goal in the overall list → `/quests` redirects.
    Presentation-layer work should change how every one of those looks and nothing about what any of
    them does.
+
+---
+
+## Phase 2 (dependencies + design tokens) — verdict: GREEN, `61909a2`
+
+Reviewed the committed state. `globals.css` and `layout.tsx` are unmodified in the working tree, so
+everything below measures commit `61909a2` exactly, not work in progress.
+
+**U1 — VERIFIED FIXED in the browser, both OS colour schemes.** This is the check the
+implementation session explicitly left to the auditer, and it passes. Loaded the app under
+Playwright with `emulateMedia({ colorScheme })` forced each way and read computed styles:
+
+| | `prefers-color-scheme: light` | `prefers-color-scheme: dark` |
+|---|---|---|
+| `matchMedia('(prefers-color-scheme: dark)')` | `false` | `true` |
+| `<html>` class | `dark …` | `dark …` |
+| computed `body` background | `#05070e` | `#05070e` |
+| computed `body` font | Rajdhani | Rajdhani |
+
+The OS preference genuinely no longer participates. `@custom-variant dark (&:is(.dark *))` plus an
+unconditional `class="dark"` is the correct mechanism, and the choice to redefine the variant rather
+than strip 55 prefixes is the better of the two options I offered — the prefixes stay semantically
+honest and the skin pass gets to replace them on its own schedule.
+
+One structural note for whoever touches this next, not a defect: `&:is(.dark *)` matches
+*descendants* of `.dark`, so a `dark:` utility placed on the `<html>` element itself would silently
+not apply. Nothing does that today (checked `layout.tsx`). The related trap is that `<html
+class="dark">` is now load-bearing for all 55 utilities while the tokens are duplicated across
+`:root, .dark` and would survive without it — so removing the class would look safe and would
+quietly reinstate exactly the U1 failure mode.
+
+**U5/U6 — VERIFIED FIXED.** Computed `body` font-family is `Rajdhani, "Rajdhani Fallback"`. The
+Arial override is gone and the fonts the app pays to load are the fonts it renders.
+
+**Standing checks 1, 2:** `git diff --stat fcd9fe9..61909a2` touches `src/lib/utils.ts` only under
+`src/lib/**` (6 lines, `cn()` exactly as expected) and no `actions.ts`. **105/105 unit tests pass**,
+`tsc --noEmit` clean.
+
+**Two things I checked because they looked wrong and turned out to be fine** — recorded so nobody
+re-investigates them:
+
+- `@import "shadcn/tailwind.css"` has no matching file at `node_modules/shadcn/tailwind.css`. It
+  resolves through the package's `exports` map (`"./tailwind.css": "./dist/tailwind.css"`), which
+  exists. Not broken.
+- That file could have collided with the hand-written token block. It doesn't — it declares only
+  `data-*` attribute variants, no `:root`, no `.dark`, no `--radius`, no token of any kind.
+
+**Worth crediting:** `--radius-sm: calc(var(--radius) * 0.6)` replaces shadcn's default subtractive
+formula. At `--radius: 2px` the stock `calc(var(--radius) - 4px)` would compute to `-2px` and be
+dropped as invalid. Switching to multiplicative is a real catch, not a cosmetic edit.
+
+---
+
+## U7 — the tightened guardrail's second exception names a path the rule doesn't cover
+
+**Severity:** Low (process) · **Status:** FIXED — moved the presets module to `src/lib/motion.ts`
+(not `src/components/ui/motion.ts`, which was hypothetical at finding time and never committed
+there) and reworded ADR-007's Test Surface exception to name that path directly, so the `src/lib/**`
+exception is coherent rather than a no-op carve-out. **Raised:** 2026-08-19
+
+ADR-007's Test Surface now reads: *"no diff anywhere under `src/lib/**` … **except**
+`src/lib/utils.ts` … and this file's own `src/components/ui/motion.ts` presets module."*
+
+`src/components/ui/motion.ts` is not under `src/lib/**`, so as written it is an exception to a rule
+that never applied to it — a no-op that reads like a carve-out. Harmless to the guardrail's strength
+(nothing is wrongly permitted), but it makes the sentence self-contradictory, which is the property
+U4 was trying to remove. Either drop it, or state it separately as "the presets module lives at X."
+
+Two follow-ons worth deciding while the wording is being touched:
+
+- **The module doesn't exist yet.** `src/components/ui/` currently holds eight CLI-generated
+  components and no `motion.ts`, so the exception is presently hypothetical.
+- **`src/components/ui/` is shadcn's generated-output directory.** Putting a hand-authored module
+  in it mixes authored and generated code in the one directory where `shadcn add` writes files.
+  `src/lib/motion.ts` — which is what the peer message described — would be the cleaner home, and
+  would also make the `src/lib/**` exception coherent.
+
+---
+
+## U8 — `--font-mono` points at a proportional typeface
+
+**Severity:** Low · **Status:** FIXED — removed the `--font-mono: var(--font-chakra-petch)` line
+from `globals.css`'s `@theme inline` block entirely, so `font-mono` falls back to Tailwind/shadcn's
+own default monospace stack rather than a proportional face. `--font-heading` (already
+`--font-chakra-petch`, already used correctly by `card.tsx`) remains the intended slot for the
+display face. **Raised:** 2026-08-19
+
+`globals.css` maps `--font-mono: var(--font-chakra-petch)`. Chakra Petch is a proportional
+display sans, not a monospace family, so Tailwind's `font-mono` utility now yields a font with no
+fixed advance width.
+
+Nothing in `src/` uses `font-mono` today, so this is a trap rather than a live bug — and the file
+already defines `--font-heading: var(--font-chakra-petch)`, which `card.tsx` uses correctly. That is
+the honest slot for a display face.
+
+The cost lands later: the first person who reaches for `font-mono` will be doing it for the reason
+people reach for mono — aligning digits in a streak counter, a rank table, a score column — and will
+get proportional figures that don't line up, from a token that told them they were getting
+monospace. Suggest leaving `--font-mono` at Tailwind's default stack and using `font-heading` where
+Chakra Petch is wanted.
+
+---
+
+## U9 — dev server 403s its own chunks when reached over `127.0.0.1`
+
+**Severity:** Low (dev-only) · **Status:** FIXED — added `allowedDevOrigins: ["127.0.0.1"]` to
+`next.config.ts`, with a comment explaining why `127.0.0.1` specifically (this project's
+`.env.local` points Supabase at `http://127.0.0.1:54321`, so it's the host people here naturally
+type). No production effect, per the finding's own note. **Raised:** 2026-08-19
+
+`next.config.ts` sets no `allowedDevOrigins`. Next 16's dev server rejects `/_next/*` requests
+carrying an `Origin` header it doesn't recognise, and `127.0.0.1` is not covered by the default
+allowlist while `localhost` is. Browsing the dev app at `http://127.0.0.1:<port>` therefore fails to
+load three JS chunks per route with `403 Forbidden`, plus a failing HMR WebSocket handshake.
+
+Isolated to the single header rather than guessed — same URL, same server, varying one header:
+
+| request | status |
+|---|---|
+| bare `curl` | 200 |
+| `+ Referer` | 200 |
+| `+ Sec-Fetch-Dest: script` | 200 |
+| `+ Sec-Fetch-Site: same-origin` | 200 |
+| `+ Origin: http://127.0.0.1:<port>` | **403** |
+
+A full four-route browser sweep over `localhost` was clean — zero failed requests, zero console
+errors — while the identical sweep over `127.0.0.1` produced 403s on every route.
+
+Production is unaffected (`next start` and Vercel don't apply this check). It matters here only
+because this project's own `.env.local` points Supabase at `http://127.0.0.1:54321`, so
+`127.0.0.1` is the host people working on this codebase naturally type — and the failure mode is
+a half-hydrated page with a console full of 403s, which reads like an application bug. One line
+(`allowedDevOrigins: ["127.0.0.1"]`) removes the trap.
+
+**This one cost me time and nearly became a filed defect**, which is the argument for fixing it:
+the first sweep looked like a genuine regression in committed code.
+
+---
+
+## Deferred to the Phase 3 (primitive swap) review — not findings against `61909a2`
+
+Measured while probing, but the pages carrying these classes are being rewritten right now, so
+they are checks to apply at Phase 3 rather than defects in Phase 2:
+
+- **Contrast baseline for the skin pass.** Against the new `#05070e` background, measured in-browser
+  via canvas sRGB conversion (`getComputedStyle` returns `lab()` for these tokens, which will
+  silently produce nonsense if parsed as RGB — it did on my first attempt): `--foreground`
+  **16.32:1**, `--muted-foreground` **5.11:1**. Both clear WCAG AA. The 20 `text-zinc-500`
+  occurrences the swap is replacing sat at roughly **4.2:1** on this background, i.e. below AA —
+  so `text-muted-foreground` is both the semantically right replacement and a measurable
+  improvement. Worth confirming that is what they became.
+- **Whatever replaces `dark:border-zinc-700`** should be checked against `--border`, which is
+  translucent (`… / 22%`) and composites differently over `--card` than over `--background`.
+
+**Concurrency note:** the page-level numbers above were read while the primitive swap was
+uncommitted in the working tree (all 9 pages modified, `src/components/ui/` untracked). They
+describe work in progress and should not be read as a review of it — that happens when it's
+committed. The Phase 2 verdict itself is unaffected: `globals.css` and `layout.tsx` were clean in
+the tree throughout.
