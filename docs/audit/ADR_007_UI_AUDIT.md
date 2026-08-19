@@ -809,3 +809,26 @@ Suite: 105/105, `tsc` clean, `eslint` clean, 0 console errors and 0 warnings thr
 **Phase 3 is CLEAR.** Remaining open in this workstream: **U3** (no sign-out — owner decision, due
 before the nav wiring phase) and **U2** (Motion's inline styles constrain S2's CSP fix — for
 whenever S2 is worked, not this workstream).
+
+---
+
+## Phase 4 slice 1 — corner brackets (`f24ae5c`): GREEN
+
+Verified in the browser on a real dashboard.
+
+| check | result |
+|---|---|
+| bracket count | exactly 4, one per corner (0px offset on each) ✅ |
+| size / colour | 14×14, `--primary` cyan ✅ |
+| `aria-hidden` on all four | yes — nothing decorative reaches the a11y tree ✅ |
+| applied scope | the "Your Progress" card only; other cards unchanged ✅ |
+| console | 0 errors, 0 warnings ✅ |
+
+105/105, `tsc` clean, `eslint` clean. Opt-in rather than default is the right call and matches the
+reference, which brackets prominent panels rather than every bordered box.
+
+**U15 — the progress bar renders as a dot at low values.** Severity: Low, cosmetic · **Status:**
+FIXED — indicator changed to `rounded-l-full` (left corners only). The outer track's
+`overflow-hidden` clips the right edge regardless of the indicator's own radius, so there's no
+visual cost at 100%; at low values the right edge is now square instead of rounded, so a narrow
+fill reads as a sliver of bar rather than a circle. **Raised:** 2026-08-19
