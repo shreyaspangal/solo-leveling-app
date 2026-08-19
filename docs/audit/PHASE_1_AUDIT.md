@@ -42,7 +42,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | **CLEAR** — GREEN verdict 2026-08-19 (P3-1 non-blocking, fixed anyway, commit `182d07a`); see "Slice 3 — review verdict" below |
-| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
+| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | AWAITING REVIEW — implemented, browser-verified against local Postgres, commits `pending` (see "Slice 4 — implementation notes" below) |
 
 **Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
 machine (see the project owner's decision to enable it locally, over the disposable-test-account
@@ -220,6 +220,71 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 
 What makes it worth filing anyway: the quest form already accepts a backdated `start_date` with no minimum, so half the precondition is reachable today; and this is a *silent under-report of a streak the user actually earned*, which is the precise failure class ADR-002 and CLAUDE.md single out as the worst kind. Anything that later writes historical entries — Phase 3's historical view, an import, a backfill — makes it live without touching either file.
 **Guardrail:** Make the two bounds one decision rather than two. Either floor `streak`'s walk at `max(earliestGoalStart, window.windowStart)` so it never reads outside what the caller supplies, or widen the fetch to `min(window_start, earliest goal start)`. The first is cheaper and matches ADR-002's framing of the streak as a within-window number. **General rule: when a pure function's iteration bound is derived from different inputs than the query that feeds it, they are one invariant expressed in two places — state it once, or assert it, because they will drift apart silently and the tests that use full fixtures will never see it.**
+
+---
+
+## Slice 4 — implementation notes (2026-08-19)
+
+**What was built.** `/quests/page.tsx`'s content (rank/streak/PDS "Your Progress" card, the
+daily checklist, and P2-1's follow-up "tracked as overall progress" list) is merged into
+`/dashboard/page.tsx`, replacing that page's Slice-0 placeholder. `/quests` is retired as a
+route — turned into a bare `redirect("/dashboard")` rather than deleted, so a stale bookmark or
+link still lands somewhere real instead of 404ing. `grep -rln '"/quests"' src/` confirmed nothing
+else in the app referenced `/quests` as a destination before making this change, so nothing else
+needed updating. No new Supabase queries or engine calls — this slice is a pure assembly/move, all
+the fetch logic and its comments carried over unchanged from `/quests/page.tsx`.
+
+**Scope vs. the PRD's full Home Dashboard section.** Deliberately omits "Today's Overview"
+(per-module breakdown table) and "Module Summaries" (per-module cards) — both describe a
+multi-domain view, and `CLAUDE.md` scopes Phase 1 to Quests-only ("Full vertical slice on one
+domain... Home Dashboard v1"). With exactly one domain live, either section would just repeat the
+checklist already on the page. Recorded as a code comment on the page itself, not just here, so
+the reason is visible to whoever adds Spirituality/Learning in Phase 2 and might otherwise wonder
+why those sections are missing. The Global Date Filter is out of scope for a different,
+already-decided reason — `CLAUDE.md` defers it to Phase 3.
+
+**One addition beyond a straight merge:** a plain filled-width progress bar under the rank
+percentage (`div` with `style={{ width: `${pct}%` }}` inside a bordered track), since the PRD's
+Home Dashboard section shows rank progress as a bar, not bare text, and a static-width div isn't
+the animation/visual-identity investment `CLAUDE.md` defers to Phase 3+ — it's the same plain
+bordered-card language already used throughout the app.
+
+**Browser-verified against real local Postgres**, fresh account through the full path: signup →
+setup (Quests domain) → `/dashboard` (renders "0% toward D rank" / "0-day streak" / empty
+checklist with a create-a-quest prompt, no crash on the no-real-data case) → created a
+daily-tracked quest ("Morning run") → checklist renders it, checked it off, confirmed the
+checkbox interaction still works post-merge → created a non-daily-tracked quest ("Read 12 books
+this year") → confirmed it appears **only** in the "tracked as overall progress" list, not the
+checklist → reloaded `/dashboard` and confirmed "Your Progress" updated to `2% toward D rank`,
+`1-day streak · Overall score 22`, both goals still correctly separated → navigated to `/quests`
+directly and confirmed it redirects to `/dashboard` rather than 404ing or double-rendering.
+
+**Two incidents during this slice's browser verification, both caught and fixed before
+proceeding, recorded here since they're relevant to what "verified against real local Postgres"
+means for this slice specifically:**
+
+1. **`.env.local` was pointed at the real linked Supabase project**, not local — predates this
+   slice (last modified 2026-08-18 15:52, before Slice 4 work started), so not something this
+   session caused, but not caught before starting the dev server either. Consequence: two
+   disposable-email signup attempts during initial verification went to the real project instead
+   of local Postgres — the same mistake class the RLS suite's D8 guard exists to prevent. Both
+   attempts were rejected by the real project's own stricter email-deliverability validation
+   before any account was created (confirmed via the Next.js server log and GoTrue's error
+   semantics — a successful signup returns a different error class than a rejected one), and an
+   attempt to independently confirm zero rows were written via a direct API probe was correctly
+   blocked by the environment's own sandboxing (network egress to the real project outside of the
+   app itself). Surfaced to the project owner directly rather than assumed safe; owner chose to
+   repoint `.env.local` at local Supabase, which is what the rest of this slice's verification
+   ran against. **Guardrail for future sessions: check `.env.local`'s `NEXT_PUBLIC_SUPABASE_URL`
+   before starting a dev server for any disposable-account browser testing — don't assume it's
+   still pointed at local from a previous session.**
+2. **`.playwright-mcp/`'s snapshot/console-log artifacts were untracked but not gitignored** —
+   caught by the project owner mid-verification, before anything was staged. Added to
+   `.gitignore`; confirmed via `git status --porcelain` that the directory no longer appears.
+
+**Checks:** `tsc` clean, `eslint` clean, **105/105** unit tests (unchanged — this slice added no
+new pure-function logic to test), `next build` clean (route table shows `/dashboard` as dynamic,
+`/quests` as static since it's now a bare redirect). Commit hash to follow once pushed.
 
 ---
 

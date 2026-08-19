@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# playwright MCP browser verification artifacts (snapshots/console logs)
+.playwright-mcp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
