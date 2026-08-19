@@ -642,3 +642,123 @@ insurance on a field whose wrong value is invisible.
 
 **Local test data:** this pass added 1 user and 3 goals (`U10 RECHECK *`). My earlier `P3 NON-DAILY
 consequence probe` row (the original U10 evidence) is also still present and can now be cleared.
+
+---
+
+## U10 re-verification (`85bf60b`) — **REGRESSED. U10 is live again.**
+
+**Severity:** High · **Status:** OPEN · **Raised:** 2026-08-19
+
+The U13/U14 redesign reintroduced the original U10 defect. Same reproduction, fresh account, real
+Postgres:
+
+```
+        title         | daily_tracking
+----------------------+----------------
+ U13 verify unchecked | t              <- user had unchecked it
+```
+
+| after a rejected submit | value |
+|---|---|
+| visible checkbox `checked` | `true` |
+| `FormData.get("dailyTracking")` | `"on"` |
+
+Both wrong, and now agreeing with each other — so U13's symptom is gone only because the data
+regressed to match the display. `02e67e2` submitted the correct value; `85bf60b` does not.
+
+**Cause — `onReset` writes too early.** The `reset` event fires *before* the form-reset algorithm
+runs, so the handler's write is immediately overwritten. Measured directly:
+
+| observation | `checked` |
+|---|---|
+| inside the handler, before its write | `false` |
+| inside the handler, after its write | `false` |
+| immediately after `dispatchEvent` returns | **`true`** |
+
+The handler does execute and does write — the reset algorithm simply runs afterwards and undoes it.
+
+**Fix — defer the write out of the handler.** Both deferrals verified to hold in the browser:
+
+| approach | `checked` after reset settles |
+|---|---|
+| write synchronously in the handler (current) | `true` ❌ |
+| `queueMicrotask(() => { el.checked = ref.current })` | `false` ✅ |
+| `setTimeout(..., 0)` | `false` ✅ |
+
+The uncontrolled-checkbox design is sound and worth keeping — it's strictly simpler than the
+hidden-input version and does remove U14 by construction. Only the write's timing is wrong. Note
+that the table above was produced with a synthetic `reset` dispatch; React's post-action reset
+should follow the same path, but the fix needs the full browser reproduction re-run end to end
+before it's called fixed.
+
+**Process note, not a criticism of the fix:** `02e67e2` was verified against this exact
+reproduction and passed; `85bf60b` changed the mechanism and was landed without re-running it. The
+reproduction is cheap and already written down — re-running it on any change to this field is the
+guardrail that would have caught this before the commit.
+
+Suite state at verdict: 105/105 tests, `tsc` clean, `eslint` clean, 0 console errors/warnings.
+Green checks do not cover this path — no test exercises the rejected-submission reset.
+
+---
+
+## U10/U13/U14 — redesigned again, not re-timed
+
+**Status:** awaiting auditer verification (not browser-tested by the implementation session this
+round — that's the auditer's lane).
+
+Dropped the reset-timing fix (`queueMicrotask`) per the owner's steer that a checkbox `<input>`
+fighting a browser reset is the wrong shape regardless of timing. New design: no refs, no
+`onReset`, no deferral. Extracted to a shared `src/components/ui/form-checkbox.tsx`, composed from
+the existing `Button` (as an icon-sized `type="button"` toggle — not form-associable, so no reset
+algorithm ever touches it) and `Input` (`type="hidden"`, controlled `value`, the same pattern
+already proven correct for every other field in this form). State is plain `useState` in the
+component, submitted through the hidden `Input`.
+
+Also: a new `no-restricted-syntax` ESLint rule now errors on raw `<button>`/`<input>`/`<textarea>`
+anywhere under `src/**` except the three files that legitimately wrap them for the first time
+(`button.tsx`/`input.tsx`/`textarea.tsx`) — added after the first version of this fix hand-rolled
+raw elements inside `components/ui/` itself instead of composing the existing primitives, which a
+directory-level exemption let through silently. See the rulebook below.
+
+Same repro as before applies. Ready for re-verification.
+
+---
+
+## Rulebook — mechanical rules from this workstream, for future code generation
+
+Distilled from what actually went wrong across U10/U13/U14 and the primitive-enforcement gap, so
+the same mistakes don't get regenerated. Each rule names the finding it came from.
+
+1. **A form control's `checked`/`value` surviving a browser's native `reset` is not guaranteed by
+   making it "controlled."** Text/date/select inputs survive reliably; a checkbox's `checked` does
+   not — React 19's post-action form reset (and, separately, Radix's own reset listener) can
+   restore it to its mount-time default through a path that bypasses the normal
+   controlled-value reconciliation. (U10, three failed attempts before the real cause was found.)
+   **Rule:** any checkbox living inside a `<form action={fn}>` must not be a form-associable
+   element at all — use a `type="button"` toggle (immune to reset by construction) paired with a
+   separate controlled hidden field for submission. `src/components/ui/form-checkbox.tsx` is the
+   reusable version; reach for it, don't reinvent it per-form.
+2. **Reproduce the original failure against a fix before calling it fixed — a suggested fix
+   direction (a peer's, or your own first instinct) is a hypothesis, not a result.** Two suggested
+   fixes for U10 (drop `name`; write synchronously in `onReset`) both looked right and both failed
+   when actually reproduced. **Rule:** re-run the exact repro after every change to
+   reset-sensitive/timing-sensitive code, not just after the first fix.
+3. **A `type="hidden"` field's styling is irrelevant — it never paints — so route it through the
+   shared `Input` anyway.** "It doesn't need styling" is not a reason to hand-roll it; it's a
+   reason using the shared component costs nothing. (Caught twice: once in
+   `form-checkbox.tsx`'s own hidden field, once in `setup-form.tsx`'s pre-existing one, which had
+   grown an `eslint-disable` comment defending the raw version instead of just fixing it.)
+4. **When adding a new shared component under `src/components/ui/`, compose the existing
+   primitives (`Button`/`Input`/`Textarea`/…) — don't hand-roll raw elements just because the file
+   lives in the primitives directory.** Only the base-wrapper files get to touch a raw element
+   directly, and there are exactly three of them. Being in `components/ui/` is not itself a
+   license to bypass the primitives.
+5. **A lint exemption scoped to a whole directory silently permits drift; scope it to the specific
+   files that need it.** The first version of the `no-restricted-syntax` rule exempted all of
+   `src/components/ui/`, which is exactly what let `form-checkbox.tsx` hand-roll raw markup
+   unflagged. Fixed to an explicit per-file `ignores` list — a new base primitive that legitimately
+   needs raw elements will fail lint until its file is added, so the rule fails closed instead of
+   silently.
+6. **React 19 function components accept `ref` as a plain prop — `forwardRef` is not required.**
+   Don't assume a shared primitive can't take a `ref` and fall back to a raw element because of it;
+   verify first (`tsc` will confirm it type-checks).

@@ -1,8 +1,8 @@
 "use client";
 
-import { Check } from "lucide-react";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FormCheckbox } from "@/components/ui/form-checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,10 +38,6 @@ export function NewQuestForm() {
   const [category, setCategory] = useState("");
   const [frequency, setFrequency] = useState("daily");
   const [targetDate, setTargetDate] = useState("");
-  // Not React state -- see the comment at the checkbox below (audit finding
-  // U10/U13) for why this field is deliberately uncontrolled.
-  const dailyTrackingRef = useRef(true);
-  const dailyTrackingCheckboxRef = useRef<HTMLInputElement>(null);
 
   // ADR-006: the user's local day, not UTC -- computed after mount (not
   // during render) so SSR's initial HTML never guesses at a value only the
@@ -60,21 +56,7 @@ export function NewQuestForm() {
   }, []);
 
   return (
-    <form
-      action={formAction}
-      onReset={() => {
-        // See the checkbox comment below (audit findings U10/U13) -- this
-        // is the fix, not a defensive extra. React 19 resets every form
-        // control to its mount-time default after an action completes,
-        // success or failure; for an uncontrolled checkbox that means the
-        // DOM's own `checked` property, which this line reasserts from the
-        // one place the reset can't reach.
-        if (dailyTrackingCheckboxRef.current) {
-          dailyTrackingCheckboxRef.current.checked = dailyTrackingRef.current;
-        }
-      }}
-      className="mt-6 space-y-3"
-    >
+    <form action={formAction} className="mt-6 space-y-3">
       <Label htmlFor="title">Quest title</Label>
       <Input
         id="title"
@@ -157,57 +139,10 @@ export function NewQuestForm() {
         className="h-11 rounded-lg"
       />
 
-      {/* Audit findings U10/U13: a rejected submission re-checks this box
-          -- both what it submits (U10, high) and what it visibly shows
-          (U13) -- reversing the user's explicit choice with no
-          indication. Worse than P1-8: that finding lost visible input,
-          this silently substitutes the opposite value.
-
-          Two earlier attempts didn't hold up, both ruled out by
-          reproducing U10 against them in a real browser rather than
-          trusting the fix: shadcn's Radix Checkbox registers a `reset`
-          listener on its ancestor form unconditionally (keyed only on
-          being nested inside a <form>, not on `name`/the bubble input --
-          confirmed by reading @radix-ui/react-checkbox's source, not
-          assumed); a plain *controlled* native checkbox fails the same
-          way through a second, independent mechanism -- React 19 itself
-          restores a controlled `checked` prop to its value at mount after
-          the action completes.
-
-          A first fix for that used a second ref plus a separate hidden
-          input written imperatively at submit time. Correct, but more
-          machinery than the problem needs, and it only fixed what gets
-          submitted (U10), not what the box visibly shows (U13) -- the
-          checkbox still displayed the opposite of its real value after a
-          reset. This version fixes both by being uncontrolled instead of
-          controlled: the checkbox IS the field that submits (real
-          `name`), `defaultChecked` sets its initial value, and `onChange`
-          only updates `dailyTrackingRef` -- a ref, so nothing but a real
-          user click ever touches it, unlike React state. The one thing a
-          reset *can* reach is the DOM's own `checked` property, and the
-          form's `onReset` above reasserts it from the ref the moment that
-          happens -- fixing the display, not working around it after the
-          fact. The shared shadcn/Radix Checkbox is untouched and still
-          correct for the non-form, imperative toggle in
-          today-checklist.tsx -- this is specific to a checkbox living
-          inside a <form action={formAction}>. */}
+      {/* Audit finding U10 -- see FormCheckbox for why this isn't a plain
+          <input type="checkbox">. */}
       <label className="flex items-center gap-2 text-sm">
-        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-          <input
-            ref={dailyTrackingCheckboxRef}
-            type="checkbox"
-            name="dailyTracking"
-            defaultChecked
-            onChange={(e) => {
-              dailyTrackingRef.current = e.target.checked;
-            }}
-            className="peer size-4 shrink-0 appearance-none rounded-[4px] border border-input outline-none checked:border-primary checked:bg-primary focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
-          <Check
-            className="pointer-events-none absolute size-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100"
-            strokeWidth={3}
-          />
-        </span>
+        <FormCheckbox name="dailyTracking" defaultChecked />
         Track this daily
       </label>
 

@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { completeSetup } from "./actions";
 
 // Timezone is set on the hidden input at submit time, not rendered into the
@@ -22,7 +23,7 @@ export function SetupForm() {
         }
       }}
     >
-      <input ref={timezoneRef} type="hidden" name="timezone" />
+      <Input ref={timezoneRef} type="hidden" name="timezone" />
       <Button type="submit" size="lg" className="mt-8 h-12 w-full rounded-full">
         Continue
       </Button>
