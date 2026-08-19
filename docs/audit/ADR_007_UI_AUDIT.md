@@ -859,3 +859,50 @@ clipped by the card's own `overflow-hidden` (that only clips content, not the el
 Same scope as the brackets: the dashboard's "Your Progress" card only.
 
 tsc/eslint/vitest(105/105)/build clean. Awaiting owner review before commit.
+
+---
+
+## Phase 4 slice 3 — glow (`20eabfd`): GREEN. **Phase 4 CLEAR.**
+
+| check | result |
+|---|---|
+| glowing elements | exactly 1 — the bracketed "Your Progress" card ✅ |
+| `var(--primary)` resolves | yes, computed to a real colour, not left literal ✅ |
+| not clipped by `overflow: hidden` | confirmed visually — the halo paints outside the card ✅ |
+| brackets still present | 4 ✅ |
+| console | 0 errors, 0 warnings ✅ |
+
+CSS-only `box-shadow`, no Motion — correct per `pick-ui-library`, and no client-component cost since
+`Card` stays a Server Component. Bundling the glow with `brackets` rather than adding a second prop
+is the right call: they're one "prominent panel" treatment, and two independent props would allow
+three combinations nobody wants to design for.
+
+Phase 4's stated scope (corner brackets + glow) is complete and clear.
+
+---
+
+## Phase 5 slice 1 — RankBadge, scope changed before building (pending commit)
+
+**Found before writing any code:** rank promotion doesn't exist anywhere in this app yet.
+`rank_target` is set once at setup (`setup/actions.ts:35`, hardcoded `"D"`) and never written again;
+promotion mechanics are explicitly undecided (ADR-002 addendum, `CLAUDE.md`'s "not decided yet"
+list). The rank-up reveal's trigger condition can't fire. Rather than build dead code, took this to
+the owner: **build the badge, skip the trigger.**
+
+`RankBadge` (`src/components/ui/rank-badge.tsx`) renders the real current rank — derived via
+`currentRankFor(rankTarget)`, one step behind the target in the fixed E-D-C-B-A-S order (a
+presentational lookup, not engine logic; doesn't touch `src/lib/rank-engine/`). Reveal animation is
+built and wired to a `justRankedUp` prop that nothing currently passes `true` — always renders in
+its resting state today, matching every other "don't animate on ordinary load" cut this ADR already
+made. Wired into the dashboard's "Your Progress" card, replacing the text-only display.
+
+**For verifying the reveal specifically** (per the "is there a deterministic trigger" question):
+`<RankBadge rank="D" justRankedUp={true} />` fires it directly, independent of any real dashboard
+data — no need to fabricate a rank change through the full flow to see the animation itself.
+
+Also added a `style-src 'unsafe-inline'` comment to `next.config.ts` recording U2 as live now
+(Motion in real use), not theoretical, so a future nonce migration doesn't scope it as "remove
+unsafe-inline everywhere."
+
+tsc/eslint/vitest(105/105)/build clean, `src/lib/**` guardrail holds. Not browser-tested by the
+implementation session. NavShell is phase 5's other piece, not yet started.

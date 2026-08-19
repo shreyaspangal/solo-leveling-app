@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { currentRankFor, RankBadge } from "@/components/ui/rank-badge";
 import { getRankData } from "@/lib/rank-data";
 import { personalDevelopmentScore, rankProgress, scheduledOn, streak } from "@/lib/rank-engine/engine";
 import type { Goal } from "@/lib/rank-engine/types";
@@ -127,14 +128,19 @@ export default async function DashboardPage() {
           </Card>
         ) : (
           <Card brackets className="mt-6 p-4">
-            <p className="text-sm text-muted-foreground">Your Progress</p>
-            <p className="mt-1 font-medium">
-              {progress.pct}% toward {rankData.window?.rankTarget} rank
-            </p>
+            <div className="flex items-center gap-4">
+              {rankData.window && <RankBadge rank={currentRankFor(rankData.window.rankTarget)} />}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-muted-foreground">Your Progress</p>
+                <p className="mt-1 font-medium">
+                  {progress.pct}% toward {rankData.window?.rankTarget} rank
+                </p>
+              </div>
+            </div>
             <Progress
               value={progress.pct}
               label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
-              className="mt-2"
+              className="mt-3"
             />
             <p className="mt-2 text-sm text-muted-foreground">
               {currentStreak}-day streak · Overall score {score}

@@ -17,6 +17,14 @@ function buildCsp(): string {
     // React dev mode uses eval() for debugging (callstack reconstruction) --
     // dev-only, never ships to production (audit finding S8).
     `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+    // 'unsafe-inline' here is load-bearing beyond the script-src case above
+    // (audit finding U2, ADR-007 phase 5): Motion for React (RankBadge,
+    // NavShell) animates by writing inline style= attributes every frame.
+    // CSP nonces cover <style> elements and <script>, never style=
+    // attributes -- there is no nonce-based fix for this half of the
+    // policy. A future nonce migration for script-src (see the
+    // script-src comment above) must leave style-src's 'unsafe-inline' in
+    // place, or both animated components break.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
