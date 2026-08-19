@@ -39,7 +39,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 
 | # | Slice | Status |
 |---|---|---|
-| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | AWAITING REVIEW — all 9 findings (P1-1 through P1-9) fixed; awaiting the review session's browser re-verification of P1-6/P1-8/P1-9 specifically, and a green/red flag for the slice |
+| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | PENDING |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
@@ -178,6 +178,46 @@ Next.js inlines `NEXT_PUBLIC_*` values into the client bundle only for **statica
 
 This was latent rather than new: Phase 0's **S9** review recorded that `src/lib/supabase/client.ts` "is not imported anywhere yet", which is exactly why it never surfaced. `TimezoneSync` is the browser client's **first consumer**, and it fails immediately. So P1-6's timezone backfill never executes, and the pre-existing-account problem P1-6 was filed to fix is still fully live. The server-side path is unaffected (Node has a real `process.env`), which is why every server-rendered date is correct and nothing else looked wrong.
 **Guardrail:** Read each variable by its literal name (`process.env.NEXT_PUBLIC_SUPABASE_URL`) so the bundler can inline it, keeping the throw-if-missing behavior. **General rule: `NEXT_PUBLIC_*` must be accessed as a static literal property; any indirection — a helper taking the name as a parameter, a loop, a computed key — silently yields `undefined` in the browser while continuing to work on the server, so it fails only in the half of the app nobody tested.** Worth a test that imports the browser client in a jsdom/browser environment, since this class of bug passes every Node-environment test.
+
+---
+
+## Slice 1 — final review verdict: GREEN (2026-08-19)
+
+Browser re-verification done against a real local Supabase stack, signed in as a real user. All
+three findings the implementation session could not itself confirm are verified working — not by
+reading the diff, but by reproducing the original failure conditions and watching them not happen.
+
+- **P1-9 — VERIFIED FIXED.** `/dashboard` now loads with **0 console errors** (previously threw
+  `Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL` on every load). The static
+  literal property access is the right fix, and the comment explaining *why the duplication between
+  the two functions is deliberate* is worth keeping — a future tidy-up that "DRYs" those two
+  functions back into a name-parameterized helper would silently reintroduce this exact bug in the
+  browser while every server-side test kept passing.
+- **P1-6 — VERIFIED FIXED, by testing the mechanism rather than the code path.** Deleted the
+  `timezone` key from the test user's `raw_user_meta_data` (leaving it `(NONE)`, i.e. exactly the
+  state a pre-ADR-006 account is in), loaded `/dashboard`, and confirmed it came back as
+  `Asia/Calcutta`. So the backfill genuinely executes now, which it never did before — this is the
+  first time P1-6 has actually been true rather than merely implemented.
+- **P1-8 — VERIFIED FIXED.** Refilled the exact failing case (title, a full paragraph of
+  description, category, deliberately invalid `targetDate`) and submitted. The error displays *and*
+  **all seven fields retain their values**, `description` included — checked via `FormData` as well
+  as DOM values, after an initial false alarm on my side where a serialization quirk made
+  `description` look absent. Correcting the `targetDate` and resubmitting then created the quest
+  successfully (row confirmed in Postgres with `description` preserved, `start_date` 2026-08-19,
+  `domain` quest), so making the fields controlled did not break the submit path.
+- **P1-7** is documentation-only and accepted as a known tradeoff; the ADR-006 addendum states the
+  auto-follow decision and its day-skip consequence explicitly, which is what the finding asked for.
+
+Full suite state at verdict time: **93/93 unit tests across 9 files**, **8/8 RLS integration tests**
+(run independently against local Postgres, no longer relying on CI), `eslint` clean, `tsc` clean,
+working tree clean at `e73ee5f`.
+
+Remaining open findings — **none blocking**, both deliberate deferrals with recorded trigger
+conditions: **P1-4** (no per-user goal cap; revisit with SC3's work in Slice 3) and **P1-5**
+(login/signup placeholder-as-label, Phase 0 code, correctly not fixed as a side effect of this
+slice).
+
+**Slice 1 is CLEAR to proceed to Slice 2.**
 
 ---
 
