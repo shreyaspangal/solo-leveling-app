@@ -42,7 +42,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | **CLEAR** — GREEN verdict 2026-08-19 (P3-1 non-blocking, fixed anyway, commit `182d07a`); see "Slice 3 — review verdict" below |
-| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | AWAITING REVIEW — implemented, browser-verified against local Postgres, commit `5b699a7` (see "Slice 4 — implementation notes" below) |
+| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | **CLEAR** — GREEN verdict 2026-08-19, commit `cc3ac3b`; see "Slice 4 — review verdict" below. **All four Phase 1 slices are now CLEAR — the Quests vertical slice is complete end to end.** |
 
 **Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
 machine (see the project owner's decision to enable it locally, over the disposable-test-account
@@ -200,6 +200,56 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 **Where:** `src/app/quests/page.tsx` — `.from("goals").select(...)` with no `.eq("domain", "quest")`.
 **Finding:** The page is titled "Today's Quests" and lives under `/quests`, but the query returns all of the user's goals regardless of `domain`. Harmless today because `createQuest` hardcodes `domain: "quest"` and no other creation path exists — I confirmed nothing else writes a goal. The moment Phase 2 adds Spirituality and Learning (which ADR-001 explicitly designs as the *same* entity differing only by onboarding template), every one of those goals appears in the Quests checklist. RLS scopes rows to the user, not to the domain, so nothing else will catch it.
 **Guardrail:** Add the domain filter now while it's one clause and obviously correct, rather than after Phase 2 makes it a visible bug. **General rule: when one entity serves several user-facing modules by a discriminator column, every module-scoped query needs that discriminator explicitly — the shared-table design ADR-001 chose makes this a recurring requirement, not a one-off.**
+
+---
+
+## Slice 4 — review verdict: GREEN (2026-08-19). Phase 1 complete.
+
+Browser pass against local Postgres, full path re-walked independently rather than taking the
+implementation session's own walkthrough as the check.
+
+- **Assembly is correct and the two lists stay separated.** `/dashboard` renders the rank card,
+  "Today's Tasks", and the overall-progress list as one page. With a deliberately mixed fixture, the
+  daily-tracked goal appears **only** in the checklist and the `daily_tracking = false` goal **only**
+  under "Tracked as overall progress (not part of your daily checklist)" — P2-1's separation and its
+  visibility follow-up both hold through the merge.
+- **The page is genuinely wired to live data, not rendering stale values.** Unchecking the one
+  scheduled goal and reloading moved `1-day streak · Overall score 22` → `0-day streak · Overall
+  score 1`, with rank correctly staying at 2% (the day still qualifies; grace absorbs the miss).
+  Those numbers reconcile by hand, which is the point — a dashboard that merely *looks* plausible is
+  the easiest thing in this project to ship wrong.
+- **Empty state is clean, and quietly demonstrates C5.** A genuinely fresh signup → setup → dashboard
+  shows `0% toward D rank`, `0-day streak · Overall score 0`, "Nothing scheduled today", no crash, and
+  no overall-progress section. Note the **score of 0**: pre-C5 this exact state scored 20. That fix
+  was verified in isolation at the time; this is the first time it's been seen doing its job in the
+  real UI a new user actually lands on.
+- **Progress bar is consistent with its own number** — filled width `2%` against "2% toward D rank".
+  It carries no `role="progressbar"`/`aria-valuenow`, but the adjacent text states the same value, so
+  the bar is decorative reinforcement rather than the sole carrier of the information. Acceptable as
+  built; worth revisiting only if the number ever moves into the bar alone.
+- **`/quests` redirects rather than 404s**, so no stale links break.
+- Console clean across the whole flow — 0 errors, 0 warnings.
+- **Scope discipline holds.** Dropping the PRD's "Today's Overview" and "Module Summaries" is right:
+  both are multi-domain views, Phase 1 is Quests-only per CLAUDE.md, and either would currently be a
+  second rendering of the same checklist. The in-page comment pointing this out for whoever adds
+  Spirituality/Learning is the part that keeps it a decision rather than an omission.
+
+**Housekeeping verified independently:** `.env.local` now targets `http://127.0.0.1:54321`, and
+`.playwright-mcp/` is both gitignored and — checked across all history — **has never appeared in a
+commit**, so the review session's own browser artifacts never leaked into the repo.
+
+**One loose end that is the owner's to close, not either session's:** two signup attempts reached the
+*real linked project* before `.env.local` was repointed. The implementation session reports both were
+rejected by that project's own validation with no account created, and nothing here contradicts that
+— but neither session has verified it against the real project's `auth.users`, and neither should
+connect to production to do so. Worth the owner confirming directly.
+
+Suite state: **105/105 unit across 9 files**, **8/8 RLS integration** (independently run against local
+Postgres), `eslint` clean, `tsc` clean, tree clean at `cc3ac3b`.
+
+**Slice 4 is CLEAR. All four Phase 1 slices are now CLEAR, and the Quests vertical slice is complete
+end to end** — create → track → streak → rank contribution, each step verified in a browser against
+real Postgres rather than fixtures.
 
 ---
 
