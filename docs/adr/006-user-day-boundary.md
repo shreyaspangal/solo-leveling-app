@@ -92,9 +92,46 @@ re-derived per request from anything other than that stored value.
   Kolkata, London, New York, Los Angeles, UTC) at a fixed moment straddling at least one of their
   boundaries; falls back to `"UTC"` for an invalid or missing timezone string, without throwing.
 
+## Addendum (2026-08-19): the traveling-user question, decided explicitly (audit finding P1-7)
+
+The original text above left "what happens when a user's detected timezone changes" implicit —
+the Decision section already described `TimezoneSync` auto-following a changed browser timezone
+(§"Capture," above), but the original version of this section still listed manual override as
+merely out of scope, without stating that auto-follow was the chosen behavior for the case that
+*isn't* manual override. Round-3 review correctly called this out: the question the ADR appeared
+to defer was actually already answered by the code, just not written down here.
+
+**Decided: timezone auto-follows the browser's detected value, with no pinning to the timezone
+captured at onboarding.** This was the only behavior `TimezoneSync` could implement without also
+building a manual-override UI (out of scope, below) — pinning to onboarding's timezone forever
+would be actively wrong for a user who relocates permanently, and there's no signal available to
+distinguish "traveling temporarily" from "moved," so the auto-detected value is authoritative,
+same as it is on first capture.
+
+**Consequence, stated rather than left implicit:** a timezone change that crosses a calendar-day
+boundary mid-window can cause a day to be skipped from the user's perspective entirely — e.g.
+flying LA→Auckland forward across enough hours that "today" jumps from one calendar date straight
+to a later one, with no `today()` call ever landing on the date in between. For a daily goal, that
+skipped date has zero entries and *was* actively scheduled, so `dailyCompletion` reads it as a
+genuine miss (per ADR-002 — it's indistinguishable from a real missed day, not a `null` day the
+C1/C4 neutral-day rule would catch), consuming grace or breaking a streak the user didn't actually
+fail to earn. The reverse direction (timezone moves backward, revisiting an already-passed date)
+is benign — `goal_entries`' `unique (goal_id, date)` constraint means a repeat write upserts rather
+than duplicating.
+
+**Accepted as a known tradeoff for now, not fixed:** this needs both an offset large enough to
+skip a calendar day *and* landing mid-streak — a genuine edge case, not a common path. Per
+CLAUDE.md's build-order rationale (test the core hypothesis cheaply before investing further),
+building detection for "was this specific miss caused by a timezone shift" is more machinery than
+this edge case currently justifies. If it proves to matter — e.g. real usage data shows travelers
+losing streaks — the fix is the same neutral-day mechanism C1/C4 already established: detect a
+day skipped purely by a timezone shift and treat it as unscheduled (skip, don't count as a miss)
+rather than building a new sentinel or rule from scratch.
+
 ## Explicitly out of scope
 
-- Letting a user manually override their detected timezone (e.g. if they travel) — auto-detected
-  only, for now.
+- Letting a user manually override their detected timezone (e.g. to opt out of auto-follow while
+  traveling) — auto-detected only, for now; see the addendum above for what auto-follow itself
+  decides and its accepted streak consequence.
 - A general per-user settings/preferences table — `user_metadata` is sufficient for one field;
   revisit if more accumulate.
