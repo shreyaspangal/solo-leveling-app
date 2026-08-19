@@ -41,7 +41,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 |---|---|---|
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
-| 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | AWAITING REVIEW — commit `9964924` |
+| 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | **CLEAR** — GREEN verdict 2026-08-19 (P3-1 non-blocking, fixed anyway, commit `182d07a`); see "Slice 3 — review verdict" below |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
 **Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
@@ -202,7 +202,7 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 ---
 
 ### P3-1. `streak` walks back past the window the entries were fetched for
-**Status:** OPEN (currently unreachable through the app's own flows — filed for the latent trap, not a live bug)
+**Status:** FIXED — fixed the data layer, not the engine: `getRankData`'s entries fetch is now bounded to `min(window_start, earliest goal start_date)` rather than `window_start` alone. Deliberately did **not** take the guardrail's cheaper-looking suggestion (flooring `streak`'s own walk at `max(earliestGoalStart, windowStart)`) — that would couple `streak` to `RankWindow` state, directly contradicting this ADR's own "deliberately decoupled" principle and the exact reasoning that put `earliestGoalStart` there in the first place. Documented as a new ADR-002 addendum before implementing. Verified against real local Postgres reproducing the exact reported scenario (goal from `2026-01-01`, `window_start` `2026-01-31`, 50 perfect days): entries fetched went from 20 to 50. 105/105 tests, tsc, lint, build clean. Commit `182d07a`.
 **Slice:** 3
 **Where:** `src/lib/rank-data.ts` bounds entries with `.gte("date", window.windowStart)` (SC1's guardrail, correctly applied) vs. `src/lib/rank-engine/engine.ts`'s `streak`, whose backward walk floors at `earliestGoalStart` — the minimum `start_date` across the goals, which can be **earlier** than `window_start`.
 **Finding:** The fetch boundary and the walk boundary are different values, and nothing ties them together. When a goal predates the rank window, `streak` walks into dates for which entries were deliberately never fetched, reads them as having no completions, and stops. Measured directly — one daily goal started `2026-01-01`, `window_start` `2026-01-31`, 50 consecutive perfect days, evaluated at `2026-02-19`:
