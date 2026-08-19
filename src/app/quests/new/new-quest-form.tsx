@@ -19,6 +19,22 @@ const SUGGESTED_CATEGORIES = [
 export function NewQuestForm() {
   const [state, formAction, pending] = useActionState(createQuest, { error: null });
 
+  // Audit finding P1-8: a <form action={formAction}> resets every
+  // uncontrolled field once the action completes, success or failure --
+  // real React 19 behavior, not something reading the component reveals.
+  // A rejected submission would silently wipe everything the user typed
+  // while showing an error about a form that no longer has the values the
+  // error refers to. Every field below is controlled from local state
+  // specifically so a failed submission leaves it exactly as the user left
+  // it; `name` attributes are unchanged, so the server action still reads
+  // these the same way via FormData.
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [frequency, setFrequency] = useState("daily");
+  const [targetDate, setTargetDate] = useState("");
+  const [dailyTracking, setDailyTracking] = useState(true);
+
   // ADR-006: the user's local day, not UTC -- computed after mount (not
   // during render) so SSR's initial HTML never guesses at a value only the
   // browser actually knows, which would risk a hydration mismatch if the
@@ -48,6 +64,8 @@ export function NewQuestForm() {
         required
         minLength={1}
         maxLength={200}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
       />
       <label className="block text-sm text-zinc-500" htmlFor="description">
@@ -58,6 +76,8 @@ export function NewQuestForm() {
         name="description"
         maxLength={2000}
         rows={3}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
         className="w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-transparent"
       />
       <label className="block text-sm text-zinc-500" htmlFor="category">
@@ -70,6 +90,8 @@ export function NewQuestForm() {
         placeholder="e.g. Habits"
         required
         list="category-suggestions"
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
       />
       <datalist id="category-suggestions">
@@ -84,7 +106,8 @@ export function NewQuestForm() {
       <select
         id="frequency"
         name="frequency"
-        defaultValue="daily"
+        value={frequency}
+        onChange={(e) => setFrequency(e.target.value)}
         className="h-11 w-full rounded-lg border border-zinc-300 bg-transparent px-3 dark:border-zinc-700"
       >
         <option value="daily">Daily</option>
@@ -113,11 +136,18 @@ export function NewQuestForm() {
         id="targetDate"
         name="targetDate"
         type="date"
+        value={targetDate}
+        onChange={(e) => setTargetDate(e.target.value)}
         className="h-11 w-full rounded-lg border border-zinc-300 px-3 dark:border-zinc-700 dark:bg-transparent"
       />
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="dailyTracking" defaultChecked />
+        <input
+          type="checkbox"
+          name="dailyTracking"
+          checked={dailyTracking}
+          onChange={(e) => setDailyTracking(e.target.checked)}
+        />
         Track this daily
       </label>
 
