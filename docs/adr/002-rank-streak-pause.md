@@ -308,6 +308,45 @@ as one.
 - `personalDevelopmentScore`: a zero-goal account scores `0`, not the `0.2 * 100 = 20` daily-term
   floor; an all-goals-expired account renormalizes over rank+streak only.
 
+## Addendum (2026-08-19): `daily_tracking = false` goals are excluded from the engine entirely (audit finding P2-1)
+
+Written ahead of Slice 3 wiring `dailyCompletion`/`streak`/`rankProgress` to real data, per Phase 1
+audit finding P2-1's guardrail — decide this before the engine touches real `daily_tracking`
+values, not after, since Slice 2's checklist UI already surfaced the gap (a `daily_tracking =
+false` goal was rendering in the daily checklist, which ADR-001 explicitly says shouldn't happen).
+
+**Decision: a `daily_tracking = false` goal is invisible to the entire per-day engine —
+`dailyCompletion`, `streak`, and `rankProgress` all treat it exactly as if it doesn't exist, the
+same as a goal outside its `start_date`/`target_date` window.** Concretely, `activeGoalsOn` (the
+shared predicate `dailyCompletion`/`streak`/`rankProgress` all already call — see the C4 addendum
+above) gets one more condition: active goals for a date are those with `start_date <= date`,
+`target_date` either null or `>= date`, **and `daily_tracking = true`.** No other function needs to
+change — this is the single choke point all three already share, which is exactly why C4 fixed the
+"no active goals" case there and not per-function.
+
+This reads ADR-001's `daily_tracking: boolean // if false, goal is tracked as overall % only, no
+per-day checklist` literally: "no per-day checklist" means no per-day scoring either, not just no
+checklist UI. The two are the same claim from two different layers — Slice 2 fixed the UI side
+(P2-1's guardrail: filter `/quests` to `daily_tracking = true`); this addendum fixes the
+calculation side before it has real data to calculate over.
+
+**What "tracked as overall % only" means is explicitly NOT decided here.** ADR-001 names the
+concept but never specifies what number it is or how it's computed — entries-completed-over-
+lifetime, milestone-based progress (ADR-001 already separates milestone-based goals from entry-
+based ones via `milestones.length > 0`, a different axis than `daily_tracking`), or something else
+entirely. Building that display is out of scope for Phase 1's four-slice plan (create → track →
+streak → rank contribution is specifically about the daily/rank engine, not a second progress
+system) and isn't needed to close P2-1 — the engine treating these goals as absent is sufficient
+and correct on its own; a user's "overall %" view for a non-daily goal is simply not built yet, the
+same way Finance/Fitness aren't. Flagged for its own decision whenever that UI is actually planned,
+rather than improvised as a side effect of closing this finding.
+
+**Test surface addition:** `dailyCompletion`/`streak`/`rankProgress` all ignore a `daily_tracking =
+false` goal exactly as if it weren't active that day, even when it's otherwise `scheduledOn`;
+mixing daily-tracked and non-daily-tracked goals in the same window doesn't let the non-tracked one
+affect grace, streak, or `pct`. To be written when Slice 3 implements this addendum, alongside
+extending the `Goal` fixture builder in `engine.test.ts` with a `dailyTracking` field.
+
 ## Test surface (write before implementation)
 
 - `dailyCompletion`: goals with no entries, weekly goal not due today, mixed domains, zero active goals → null not 0

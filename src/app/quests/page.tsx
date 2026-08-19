@@ -24,12 +24,20 @@ export default async function QuestsPage() {
   // Selecting only the columns scheduledOn/the checklist actually need,
   // not `select("*")` -- SC1/SC3's guardrail about scoping fetches applies
   // to column selection too, not just date ranges.
+  //
+  // domain filter (audit finding P2-2): this page is Quests-specific --
+  // ADR-001 designs Spirituality/Learning as the same entity differing only
+  // by onboarding template, so without this filter, once Phase 2 adds those
+  // domains their goals would silently appear in the Quests checklist too.
   const { data: goalRows } = await supabase
     .from("goals")
-    .select("id, domain, title, category, frequency, start_date, target_date")
+    .select("id, domain, title, category, frequency, start_date, target_date, daily_tracking")
+    .eq("domain", "quest")
     .order("created_at", { ascending: true });
 
-  const goals: (Goal & { title: string; category: string })[] = (goalRows ?? []).map((row) => ({
+  const goals: (Goal & { title: string; category: string; dailyTracking: boolean })[] = (
+    goalRows ?? []
+  ).map((row) => ({
     id: row.id,
     domain: row.domain,
     title: row.title,
@@ -37,9 +45,17 @@ export default async function QuestsPage() {
     frequency: row.frequency,
     startDate: row.start_date,
     targetDate: row.target_date,
+    dailyTracking: row.daily_tracking,
   }));
 
-  const scheduledToday = goals.filter((goal) => scheduledOn(goal, today));
+  // daily_tracking filter (audit finding P2-1): ADR-001 is explicit --
+  // "if false, goal is tracked as overall % only, no per-day checklist."
+  // This is the daily checklist, so a goal opted out of daily tracking
+  // never belongs on it, regardless of whether it's otherwise scheduledOn
+  // today. (What a daily_tracking=false goal contributes to dailyCompletion
+  // itself is decided in ADR-002's addendum, ahead of Slice 3's engine
+  // wiring -- this page doesn't touch that calculation at all yet.)
+  const scheduledToday = goals.filter((goal) => goal.dailyTracking && scheduledOn(goal, today));
 
   const { data: entryRows } = await supabase
     .from("goal_entries")
