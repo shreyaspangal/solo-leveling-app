@@ -41,7 +41,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 |---|---|---|
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
-| 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
+| 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | AWAITING REVIEW — commit `9964924` |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
 **Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
