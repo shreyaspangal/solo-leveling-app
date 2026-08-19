@@ -76,6 +76,20 @@ export default async function QuestsPage() {
   // wiring -- this page doesn't touch that calculation at all yet.)
   const scheduledToday = goals.filter((goal) => goal.dailyTracking && scheduledOn(goal, today));
 
+  // Minimal visibility for daily_tracking=false goals (project owner
+  // decision, 2026-08-19, follow-up to audit finding P2-1): these are
+  // correctly excluded from the daily checklist above and from the whole
+  // rank engine (ADR-002 addendum) -- but until now that also meant a user
+  // who created one had no way to see it existed anywhere. Not the
+  // "overall %" tracking ADR-001 gestures at (that's still undecided, still
+  // out of scope) -- just a plain list, so the goal isn't invisible.
+  const overallGoals = goals.filter(
+    (goal) =>
+      !goal.dailyTracking &&
+      goal.startDate <= today &&
+      (goal.targetDate === null || goal.targetDate >= today),
+  );
+
   const { data: entryRows } = await supabase
     .from("goal_entries")
     .select("goal_id, completed")
@@ -130,6 +144,25 @@ export default async function QuestsPage() {
               completed: completedGoalIds.has(g.id),
             }))}
           />
+        )}
+
+        {overallGoals.length > 0 && (
+          <div className="mt-6">
+            <p className="text-sm text-zinc-500">
+              Tracked as overall progress (not part of your daily checklist)
+            </p>
+            <ul className="mt-3 space-y-2">
+              {overallGoals.map((g) => (
+                <li
+                  key={g.id}
+                  className="rounded-lg border border-zinc-300 p-4 dark:border-zinc-700"
+                >
+                  <span className="block font-medium">{g.title}</span>
+                  <span className="block text-sm text-zinc-500">{g.category}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <Link
