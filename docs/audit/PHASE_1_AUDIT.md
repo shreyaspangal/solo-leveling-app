@@ -181,6 +181,65 @@ This was latent rather than new: Phase 0's **S9** review recorded that `src/lib/
 
 ---
 
+### P2-1. `daily_tracking` is written at creation and then never read — non-daily goals still appear in the daily checklist
+**Status:** OPEN — **blocking for Slice 2.** Contradicts ADR-001 directly.
+**Slice:** 2
+**Where:** `src/app/quests/page.tsx` — the goals query doesn't select `daily_tracking`, and the filter is `scheduledOn(goal, today)` alone. `scheduledOn` (`rank-engine/engine.ts`) only knows about `frequency`/`start_date`/`target_date`; it has no notion of daily tracking, correctly so.
+**Finding:** ADR-001 defines the field unambiguously: `daily_tracking: boolean // if false, goal is tracked as overall % only, no per-day checklist`. The quest form captures it (P1-8 made it a controlled input) and `createQuest` writes it, but **nothing in the codebase ever reads it back** — grepped: the only occurrences are the form, the insert, and the Zod schema.
+
+Verified in a browser against local Postgres: set `daily_tracking = false` on "Meditate 10 minutes", loaded `/quests`, and it still renders as a checkable item alongside the daily-tracked goal. So a user who deliberately unticks "Track this daily" gets exactly the per-day checklist ADR-001 says they shouldn't, and every day they don't tick it, it reads as an incomplete scheduled goal.
+
+The consequence is bigger than one list rendering wrong, which is why this is blocking rather than cosmetic: `dailyCompletion` (ADR-002) counts *every* goal `scheduledOn` today, with no `daily_tracking` awareness either. So once Slice 3 wires the engine to real data, an overall-%-tracked goal will drag the user's daily completion below 100% every single day, burn grace on every day of the rank window, and break streaks — the "silently misrepresents a user's real progress" failure mode again, arriving through a field that already exists and is already being collected.
+**Guardrail:** Filter the checklist to `daily_tracking = true` (and select the column, which the query currently doesn't). More importantly, decide and document what a `daily_tracking = false` goal contributes to `dailyCompletion` **before Slice 3 wires the engine** — the honest reading of ADR-001 is that it should be excluded from the per-day scoring entirely and tracked as milestone/overall progress, which is a different question the ADR gestures at but doesn't settle. **General rule: a schema field that is collected but never read is not "unused" — it is a promise to the user that the UI is already making and the backend isn't keeping.** Worth grepping for other write-only fields at the same time.
+
+### P2-2. `/quests` selects every domain, not just Quests (latent until Phase 2)
+**Status:** OPEN (latent, low — flagged now because the fix is one clause and the cost arrives silently)
+**Slice:** 2
+**Where:** `src/app/quests/page.tsx` — `.from("goals").select(...)` with no `.eq("domain", "quest")`.
+**Finding:** The page is titled "Today's Quests" and lives under `/quests`, but the query returns all of the user's goals regardless of `domain`. Harmless today because `createQuest` hardcodes `domain: "quest"` and no other creation path exists — I confirmed nothing else writes a goal. The moment Phase 2 adds Spirituality and Learning (which ADR-001 explicitly designs as the *same* entity differing only by onboarding template), every one of those goals appears in the Quests checklist. RLS scopes rows to the user, not to the domain, so nothing else will catch it.
+**Guardrail:** Add the domain filter now while it's one clause and obviously correct, rather than after Phase 2 makes it a visible bug. **General rule: when one entity serves several user-facing modules by a discriminator column, every module-scoped query needs that discriminator explicitly — the shared-table design ADR-001 chose makes this a recurring requirement, not a one-off.**
+
+---
+
+## Slice 2 — review verdict: RED (2026-08-19)
+
+Code-level and browser verification both done against a real local Supabase stack, signed in as a
+real user.
+
+**Verified working:**
+- **Entry writes use the stored timezone, not a server clock.** `upsertGoalEntry` derives `date`
+  from `todayInTimezone(userTimezone(user))` server-side and never accepts it as a parameter — the
+  same posture as `user_id` in `createQuest`, and exactly what P1-1's fix existed to make possible.
+  Confirmed end to end: the written row carried `2026-08-19`, matching the signed-in user's
+  `Asia/Calcutta` day, and the page header renders the same derived date.
+- **Upsert semantics are correct.** Toggling a checkbox on wrote one row; toggling it off updated
+  **the same row id** to `completed = false` with **exactly one row total** — no duplicate, which is
+  the specific thing the `unique (goal_id, date)` constraint and the checkbox's repeat-toggle
+  behavior depend on.
+- **Round-trip persistence works in both directions** — checked and unchecked states both survive a
+  full page reload and render from the database rather than from client state.
+- **`toUserError` is reused** rather than re-implemented, per P1-2's guardrail.
+- **The checklist deliberately sidesteps P1-8 rather than re-fixing it.** Calling the action from
+  `onChange` instead of `<form action>` means React 19's form-reset behavior never applies. The
+  component also does the two things that actually matter for this interaction: it reverts the
+  optimistic update when the write fails, and it `disable`s the input while a write is in flight, so
+  a fast double-toggle can't race. Console clean, 0 errors and 0 warnings across the flow.
+- **Scoped fetching is honored up front** — the entries query is `.eq("date", today)` and the goals
+  query selects named columns rather than `*`, so SC1/SC3's guardrail is met here rather than
+  retrofitted in Slice 3.
+
+**Blocking:** **P2-1** — `daily_tracking` is collected but never read, so non-daily goals appear in
+the daily checklist, contradicting ADR-001. The reason this blocks rather than waits is that Slice 3
+wires `dailyCompletion` to real data, and the same missing awareness there will burn grace and break
+streaks daily for any goal the user deliberately marked as not-daily.
+
+**Also open:** **P2-2** (domain filter, latent until Phase 2, one-clause fix).
+
+Suite state: **97/97 unit tests across 9 files**, `eslint` clean, `tsc` clean, tree clean at
+`56f97bc`.
+
+---
+
 ## Slice 1 — final review verdict: GREEN (2026-08-19)
 
 Browser re-verification done against a real local Supabase stack, signed in as a real user. All
