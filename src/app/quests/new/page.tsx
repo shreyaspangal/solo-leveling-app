@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { NavShell } from "@/components/ui/nav-shell";
 import { createClient } from "@/lib/supabase/server";
 import { NewQuestForm } from "./new-quest-form";
 
@@ -13,13 +14,16 @@ export default async function NewQuestPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Create a Quest</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Anything you want to track — the possibilities are open-ended.
-        </p>
-        <NewQuestForm />
+    <div className="flex flex-1 flex-col items-center">
+      <NavShell />
+      <div className="flex w-full flex-1 flex-col items-center justify-center px-6 py-16">
+        <div className="w-full max-w-sm">
+          <h1 className="text-2xl font-semibold tracking-tight">Create a Quest</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Anything you want to track — the possibilities are open-ended.
+          </p>
+          <NewQuestForm />
+        </div>
       </div>
     </div>
   );

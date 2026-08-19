@@ -7,32 +7,33 @@ import { cn } from "@/lib/utils";
 
 const RANK_ORDER: Rank[] = ["E", "D", "C", "B", "A", "S"];
 
-// There is no separately-tracked "current rank" anywhere in the app yet --
-// `rank_target` (the rank a RankWindow is working toward) is set once at
-// setup and never advances; full promotion mechanics are explicitly
-// undecided (ADR-002 addendum, CLAUDE.md's "not decided yet" list). Current
-// rank is one step behind the target in the fixed E-D-C-B-A-S sequence, so
-// this derives it for display -- a presentational lookup, not engine logic,
-// and doesn't touch src/lib/rank-engine/.
-export function currentRankFor(rankTarget: Rank): Rank {
-  const i = RANK_ORDER.indexOf(rankTarget);
-  return RANK_ORDER[Math.max(0, i - 1)];
-}
-
 export function RankBadge({
-  rank,
+  rankTarget,
   justRankedUp = false,
   className,
 }: {
-  rank: Rank;
+  // Takes the RankWindow's target, not a "current rank" prop -- there is no
+  // separately-tracked current rank anywhere in the app yet (rank_target is
+  // set once at setup and never advances; full promotion mechanics are
+  // explicitly undecided, ADR-002 addendum / CLAUDE.md's "not decided yet"
+  // list). Current rank is derived here, one step behind the target in the
+  // fixed E-D-C-B-A-S sequence -- kept inside this client component rather
+  // than a separately exported function, deliberately: a prior version
+  // exported it from this "use client" module and a Server Component
+  // called it directly, which Next.js runs as a real RSC boundary
+  // violation (500 on every page that had a RankWindow), not a lint/type
+  // error either tool surfaces. Keeping the derivation un-exported removes
+  // the ability to make that mistake again, not just this instance of it.
+  rankTarget: Rank;
   // No caller passes true yet -- there's no rank-promotion event to detect
-  // (see currentRankFor's comment). The reveal is built and ready; wiring a
-  // real trigger is future work once promotion mechanics exist. Until then
-  // this always renders in its resting state, matching ADR-007's cut of
-  // every other "animate on ordinary page load" case.
+  // (see above). The reveal is built and ready; wiring a real trigger is
+  // future work once promotion mechanics exist. Until then this always
+  // renders in its resting state, matching ADR-007's cut of every other
+  // "animate on ordinary page load" case.
   justRankedUp?: boolean;
   className?: string;
 }) {
+  const rank = RANK_ORDER[Math.max(0, RANK_ORDER.indexOf(rankTarget) - 1)];
   const shouldReduceMotion = useReducedMotion();
   return (
     <motion.div

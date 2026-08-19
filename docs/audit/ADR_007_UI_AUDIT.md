@@ -906,3 +906,119 @@ unsafe-inline everywhere."
 
 tsc/eslint/vitest(105/105)/build clean, `src/lib/**` guardrail holds. Not browser-tested by the
 implementation session. NavShell is phase 5's other piece, not yet started.
+
+---
+
+## U16 — `/dashboard` returns **500 for every set-up user** (`0631a1c`)
+
+**Severity:** Critical · **Status:** OPEN · **Raised:** 2026-08-19 (regression)
+
+```
+Error: Attempted to call currentRankFor() from the server but currentRankFor is on the client.
+    at DashboardPage (src/app/dashboard/page.tsx:132)
+GET /dashboard 500
+```
+
+`currentRankFor` is exported from `src/components/ui/rank-badge.tsx`, whose first line is
+`"use client"`. `src/app/dashboard/page.tsx` is a Server Component and **calls** it — not renders it,
+calls it — at line 132. Next 16 forbids invoking a client-module function from the server, so the
+render throws.
+
+Confirmed against the **committed** state, not the working tree (which currently carries in-progress
+NavShell work):
+
+- `git show 0631a1c:src/components/ui/rank-badge.tsx | head -1` → `"use client";`
+- `git show 0631a1c:src/app/dashboard/page.tsx` line 132 → `<RankBadge rank={currentRankFor(...)} />`
+
+**Impact:** the guard is `rankData.window && ...`, and every account past `/setup` has a RankWindow.
+So the app's main page is a hard 500 for every real user. Only a signed-out visitor (307 to `/login`)
+or an account that never finished setup avoids it.
+
+**Why all four checks passed:** this is an RSC boundary violation, which is a *runtime* error. `tsc`
+doesn't model the client/server boundary, `eslint` has no rule for it here, no test renders the
+page, and `next build` doesn't prerender `/dashboard` because it reads cookies — so a dynamic route's
+render error never surfaces at build time. Green `tsc`/`eslint`/`vitest`/`build` is not evidence
+that a page loads.
+
+**Fix direction:** `currentRankFor` is pure display logic with no reason to live in a client module.
+Either move it to its own non-`"use client"` module, or drop it as a separate export and pass
+`rankTarget` into `RankBadge`, deriving the current rank inside the client component. The second is
+simpler and removes the possibility of the same mistake recurring.
+
+**Guardrail note:** a new module for it belongs beside the component (e.g. `src/components/ui/`), not
+under `src/lib/**`, which ADR-007 puts out of scope for this workstream.
+
+---
+
+## U17 — the rank-up reveal emits a hydration mismatch, and flashes under reduced motion
+
+**Severity:** Low (latent — no caller sets `justRankedUp`) · **Status:** OPEN · **Raised:** 2026-08-19
+
+Exercised via a temporary probe rendering `<RankBadge rank="D" justRankedUp />` (probe since deleted;
+tree left as found).
+
+**The reveal itself works.** Sampled every 60ms: scale `0.9 → 0.904 → 0.915 → …`, opacity
+`0 → 0.05 → 0.15 → …`, settling at `transform: none, opacity: 1`. Spring, no bounce, as ADR-007
+specifies. **Reduced motion works too** — under `reducedMotion: 'reduce'` it lands on
+`none / 1` immediately instead of animating.
+
+Two defects on that path:
+
+1. **Hydration mismatch under reduced motion** — console error: *"A tree hydrated but some attributes
+   of the server rendered HTML didn't match the client properties."* `useReducedMotion()` returns
+   `null` during SSR, so `justRankedUp && !shouldReduceMotion` evaluates true on the server and false
+   on the client, producing different inline styles.
+2. **A visible flash before it snaps** — the first sampled frame under reduced motion is still
+   `scale(0.9), opacity: 0`, i.e. the server-rendered pre-animation state paints before the client
+   corrects it. Reduced motion should mean the element is simply *there*.
+
+Both are latent today: no caller passes `justRankedUp`, so `initial={false}` on every real render.
+They become live the moment a real rank-promotion trigger is wired. Worth fixing when that happens
+rather than now — recorded so it isn't rediscovered then.
+
+**The dormant-reveal decision itself is right.** Rank promotion genuinely doesn't exist yet
+(`rank_target` is set once at setup and never advances), and building the reveal against a real
+trigger would have meant inventing promotion mechanics that CLAUDE.md explicitly lists as undecided.
+Taking that to the owner rather than faking a trigger was the correct call.
+
+**U2 recorded correctly** — `next.config.ts` now carries the note that a future `script-src` nonce
+migration must leave `style-src 'unsafe-inline'` in place or both animated components break.
+
+---
+
+## Phase 5 slice 2 — NavShell (pending commit)
+
+`NavShell` (`src/components/ui/nav-shell.tsx`): two items only (Home -> /dashboard, Create Quest ->
+/quests/new), per ADR-007's scope -- Spirituality/Finance/Fitness/Learning omitted entirely, not
+shown disabled. Active-route indicator uses Motion's `layoutId`, matching `pick-ui-library`'s own
+example of that exact primitive's intended use (shared tab indicator). `useReducedMotion()` disables
+the `layout` prop under reduced motion, so the indicator snaps instead of sliding.
+
+Mounted directly on `/dashboard` and `/quests/new` (not a shared layout -- introducing a Next.js
+route-group layout felt like phase 6 "wiring" scope, not phase 5 "build the component" scope; happy
+to reconsider if that reads wrong). Not mounted on `/welcome`/`/rules`/`/login`/`/signup`/`/setup` --
+correct, since a user isn't authenticated/onboarded on those yet.
+
+tsc/eslint/vitest(105/105)/build clean, `src/lib/**` guardrail holds. Not browser-tested by the
+implementation session -- the layoutId slide animation specifically needs a real navigation between
+the two pages to observe, which is exactly the kind of thing worth verifying directly rather than
+reasoning about from the diff.
+
+**Phase 5 is now both pieces built.** RankBadge's reveal is dormant (no trigger exists yet, recorded
+above); NavShell's indicator is live and should be observable by navigating between the two mounted
+pages.
+
+---
+
+## RSC boundary fix (pending commit) — currentRankFor removed as a cross-boundary export
+
+Fixes the 500 the auditer caught in 0631a1c. `currentRankFor` no longer exists as a separate
+export from `rank-badge.tsx` -- the derivation moved inside `RankBadge` itself, which now takes
+`rankTarget: Rank` and computes current rank internally. `dashboard/page.tsx` passes
+`rankTarget={rankData.window.rankTarget}` directly; no function from the "use client" module is
+called from the Server Component anymore, so this class of mistake can't recur here structurally,
+not just this instance of it.
+
+tsc/eslint/vitest(105/105)/build clean -- unchanged from before, since (per the auditer's own
+finding) none of these would have caught the original bug either. Whether `/dashboard` actually
+loads for a signed-in user again is the auditer's check to make, not claimed here.

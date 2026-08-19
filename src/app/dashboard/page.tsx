@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { currentRankFor, RankBadge } from "@/components/ui/rank-badge";
+import { NavShell } from "@/components/ui/nav-shell";
+import { RankBadge } from "@/components/ui/rank-badge";
 import { getRankData } from "@/lib/rank-data";
 import { personalDevelopmentScore, rankProgress, scheduledOn, streak } from "@/lib/rank-engine/engine";
 import type { Goal } from "@/lib/rank-engine/types";
@@ -111,87 +112,92 @@ export default async function DashboardPage() {
   );
 
   return (
-    <div className="flex flex-1 flex-col items-center px-6 py-16">
+    <div className="flex flex-1 flex-col items-center">
       <TimezoneSync />
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{today}</p>
+      <NavShell />
+      <div className="flex w-full flex-1 flex-col items-center px-6 py-16">
+        <div className="w-full max-w-sm">
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{today}</p>
 
-        {/* Rank isn't Quests-specific (ADR-001), unlike the checklist below --
-            per the PRD, this is the most prominent section of the dashboard. */}
-        {progress === null ? (
-          <Card className="mt-6 p-4 text-sm text-muted-foreground">
-            <Link href="/setup" className="font-medium text-foreground underline">
-              Finish setup
-            </Link>{" "}
-            to start rank tracking.
-          </Card>
-        ) : (
-          <Card brackets className="mt-6 p-4">
-            <div className="flex items-center gap-4">
-              {rankData.window && <RankBadge rank={currentRankFor(rankData.window.rankTarget)} />}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-muted-foreground">Your Progress</p>
-                <p className="mt-1 font-medium">
-                  {progress.pct}% toward {rankData.window?.rankTarget} rank
-                </p>
+          {/* Rank isn't Quests-specific (ADR-001), unlike the checklist below --
+              per the PRD, this is the most prominent section of the dashboard. */}
+          {progress === null ? (
+            <Card className="mt-6 p-4 text-sm text-muted-foreground">
+              <Link href="/setup" className="font-medium text-foreground underline">
+                Finish setup
+              </Link>{" "}
+              to start rank tracking.
+            </Card>
+          ) : (
+            <Card brackets className="mt-6 p-4">
+              <div className="flex items-center gap-4">
+                {rankData.window && (
+                  <RankBadge rankTarget={rankData.window.rankTarget} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-muted-foreground">Your Progress</p>
+                  <p className="mt-1 font-medium">
+                    {progress.pct}% toward {rankData.window?.rankTarget} rank
+                  </p>
+                </div>
               </div>
+              <Progress
+                value={progress.pct}
+                label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
+                className="mt-3"
+              />
+              <p className="mt-2 text-sm text-muted-foreground">
+                {currentStreak}-day streak · Overall score {score}
+              </p>
+            </Card>
+          )}
+
+          <h2 className="mt-8 text-sm font-medium text-muted-foreground">Today&apos;s Tasks</h2>
+
+          {scheduledToday.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Nothing scheduled today.{" "}
+              <Link href="/quests/new" className="font-medium text-foreground underline">
+                Create a quest
+              </Link>{" "}
+              to get started.
+            </p>
+          ) : (
+            <div className="mt-3">
+              <TodayChecklist
+                goals={scheduledToday.map((g) => ({
+                  id: g.id,
+                  title: g.title,
+                  category: g.category,
+                  completed: completedGoalIds.has(g.id),
+                }))}
+              />
             </div>
-            <Progress
-              value={progress.pct}
-              label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
-              className="mt-3"
-            />
-            <p className="mt-2 text-sm text-muted-foreground">
-              {currentStreak}-day streak · Overall score {score}
-            </p>
-          </Card>
-        )}
+          )}
 
-        <h2 className="mt-8 text-sm font-medium text-muted-foreground">Today&apos;s Tasks</h2>
+          {overallGoals.length > 0 && (
+            <div className="mt-6">
+              <p className="text-sm text-muted-foreground">
+                Tracked as overall progress (not part of your daily checklist)
+              </p>
+              <ul className="mt-3 space-y-2">
+                {overallGoals.map((g) => (
+                  <li key={g.id}>
+                    <Card className="p-4">
+                      <span className="block font-medium">{g.title}</span>
+                      <span className="block text-sm text-muted-foreground">{g.category}</span>
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-        {scheduledToday.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Nothing scheduled today.{" "}
-            <Link href="/quests/new" className="font-medium text-foreground underline">
-              Create a quest
-            </Link>{" "}
-            to get started.
-          </p>
-        ) : (
-          <div className="mt-3">
-            <TodayChecklist
-              goals={scheduledToday.map((g) => ({
-                id: g.id,
-                title: g.title,
-                category: g.category,
-                completed: completedGoalIds.has(g.id),
-              }))}
-            />
-          </div>
-        )}
-
-        {overallGoals.length > 0 && (
-          <div className="mt-6">
-            <p className="text-sm text-muted-foreground">
-              Tracked as overall progress (not part of your daily checklist)
-            </p>
-            <ul className="mt-3 space-y-2">
-              {overallGoals.map((g) => (
-                <li key={g.id}>
-                  <Card className="p-4">
-                    <span className="block font-medium">{g.title}</span>
-                    <span className="block text-sm text-muted-foreground">{g.category}</span>
-                  </Card>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <Button asChild variant="outline" className="mt-6 h-11 w-full rounded-full">
-          <Link href="/quests/new">Create a Quest</Link>
-        </Button>
+          <Button asChild variant="outline" className="mt-6 h-11 w-full rounded-full">
+            <Link href="/quests/new">Create a Quest</Link>
+          </Button>
+        </div>
       </div>
     </div>
   );
