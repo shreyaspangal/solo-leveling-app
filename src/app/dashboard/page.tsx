@@ -131,7 +131,11 @@ export default async function DashboardPage() {
             <p className="mt-1 font-medium">
               {progress.pct}% toward {rankData.window?.rankTarget} rank
             </p>
-            <Progress value={progress.pct} className="mt-2" />
+            <Progress
+              value={progress.pct}
+              label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
+              className="mt-2"
+            />
             <p className="mt-2 text-sm text-muted-foreground">
               {currentStreak}-day streak · Overall score {score}
             </p>

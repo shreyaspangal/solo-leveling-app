@@ -382,3 +382,172 @@ uncommitted in the working tree (all 9 pages modified, `src/components/ui/` untr
 describe work in progress and should not be read as a review of it — that happens when it's
 committed. The Phase 2 verdict itself is unaffected: `globals.css` and `layout.tsx` were clean in
 the tree throughout.
+
+---
+
+## Phase 3 (primitive component swap) — verdict: **RED — one blocking regression**, `9b699d5`
+
+Everything mechanical passes: the `src/lib/**` guardrail holds exactly (only `motion.ts` and
+`utils.ts`, no `actions.ts`), **105/105 tests**, `tsc` clean, `eslint` clean, and a full authenticated
+walk produced **0 console errors and 0 warnings** on every route. The engine is provably untouched —
+toggling a checklist item moved the dashboard from `0-day streak · Overall score 1` to `1-day streak
+· Overall score 22`, matching Phase 1 Slice 4's original numbers exactly. `/quests` still redirects.
+
+One finding blocks the phase.
+
+---
+
+## U10 — a rejected submission silently re-checks "Track this daily", reversing the user's choice
+
+**Severity:** High · **Status:** FIXED — two attempts, both verified in a real browser against real
+Postgres before being trusted, not assumed from reading the diff.
+
+**First attempt (rejected by verification, not shipped):** the suggested fix direction ("drop
+`name`") turned out not to work. Read `@radix-ui/react-checkbox`'s actual source before implementing
+anything: the `reset` listener that causes this bug lives in `CheckboxTrigger`, keyed only on
+`control?.form` (the trigger button's native DOM `.form` property, resolved purely by being nested
+inside a `<form>`) — `name`/the bubble input are never consulted by that listener at all. Swapped to
+a plain native `<input type="checkbox">` instead (same reasoning as the native `<select>` — a
+*native* controlled input's `onChange` is never called by a reset event, only the DOM property
+flickers and the next render reasserts it). Reproduced U10 against this version anyway: **still
+failed.** React 19's own form-reset restores a controlled checkbox's `checked` prop to its value *at
+mount*, which is a different mechanism than Radix's explicit listener but the identical symptom —
+confirmed the flip is a real DOM property change (`document.querySelector(...).checked === true`),
+not a stale accessibility-tree snapshot, before concluding the first fix hadn't worked.
+
+**Second attempt (what shipped):** the visible checkbox stopped being the thing that gets submitted.
+It still updates `dailyTracking` state (cosmetic — may itself flicker back to checked after a reset,
+same as before, but nothing downstream reads it) and a `dailyTrackingRef` that only a genuine
+`onChange` call ever writes to, so nothing else can touch it. A separate hidden `<input
+type="hidden" name="dailyTracking">` is the actual submitted field, written from the ref
+imperatively in the form's `onSubmit` — the same pattern `setup-form.tsx` already uses for
+`timezone`, applied here for the identical reason (a value that must survive to submission without
+passing through the reset-vulnerable controlled-state path).
+
+**Re-ran the exact repro against the fix:** unchecked → invalid `targetDate` → rejected (error shown
+correctly) → checked `document.querySelector('input[name="dailyTracking"]').value` at that point:
+`""` (correct, despite the visible checkbox still showing checked) → fixed only the date → resubmit
+→ confirmed in Postgres: `daily_tracking = f`. Also re-verified the happy path (box left checked,
+default) still creates `daily_tracking = t`. 0 console errors/warnings throughout. Left-over bad row
+from the first (failed) attempt deleted from the local stack. **Raised:** 2026-08-19 (regression,
+introduced by `9b699d5`)
+
+Swapping the native `<input type="checkbox">` for Radix's `Checkbox` reintroduced P1-8's failure mode
+on the one field that was swapped — and in a worse form. P1-8 *lost* what the user typed, which is
+visible and recoverable. This *substitutes the opposite value* and gives the user no way to notice.
+
+**Reproduction, end to end:**
+
+1. On `/quests/new`, fill the form and **uncheck** "Track this daily".
+2. Enter a `targetDate` before the `startDate` (or trigger any other server-side rejection).
+3. Submit. The error `targetDate must be on or after startDate` displays correctly.
+4. Fix only the date — the one thing the error named — and submit again.
+5. **The quest is created with `daily_tracking = true`.**
+
+Confirmed in Postgres, not inferred from the UI:
+
+```
+             title              | daily_tracking | frequency
+--------------------------------+----------------+-----------
+ P3 NON-DAILY consequence probe | t              | daily
+```
+
+The dashboard then lists that goal under **Today's Tasks**, and it contributes to rank and streak —
+a goal the user explicitly opted out of daily tracking is now driving their rank number.
+
+**Measured state, before and after the rejected submit** (read from `FormData`, not from the DOM's
+appearance):
+
+| | `data-state` | `FormData.get("dailyTracking")` |
+|---|---|---|
+| after the user unchecks | `unchecked` | `null` |
+| after the rejected submit | **`checked`** | **`"on"`** |
+
+Every other field survives correctly — `title`, `description`, `category`, `frequency`, `startDate`
+and `targetDate` all retain their values, so P1-8's original fix is intact. The checkbox is the only
+field that reverts.
+
+**Mechanism**, isolated with a bare `reset` event and no submit at all — dispatching
+`new Event('reset')` on the form flips `unchecked` → `checked` on its own:
+
+Radix's Checkbox registers a `reset` listener on its parent form and restores `defaultChecked`,
+captured at mount (`true` here). Because the component is *controlled*, that restore calls
+`onCheckedChange`, which runs `setDailyTracking(...)` and overwrites the React state. So the
+controlled pattern that protects the other fields is precisely what propagates the reset into
+application state for this one. React 19 resets the form on every completed action, success or
+failure — the same behavior P1-8 documented.
+
+The native `<select>` survives the same reset because a controlled `<select>` has no equivalent
+listener: React re-asserts `value` on re-render and nothing fires `onChange`. That asymmetry is why
+this was invisible to a walk that only exercised the happy path.
+
+**Fix direction** (implementation session's call): keep the Radix `Checkbox` presentational — drop
+its `name` so no bubble input is rendered — and submit the value through a controlled hidden input
+the reset can't reach. That preserves `formData.get("dailyTracking") === "on"` exactly as
+`createQuest` expects and needs no change to `actions.ts`, which the ADR-007 guardrail puts out of
+scope anyway. Re-asserting state from a `reset` handler also works but leaves a race between two
+listeners on the same event.
+
+**Scope — checked, not assumed.** Three files use `Checkbox`:
+- `new-quest-form.tsx` — **affected** (inside a `<form action>` with a `name`).
+- `today-checklist.tsx` — **not affected**; no form ancestor, no `name`, invoked imperatively.
+- `rules/page.tsx` — **not affected**; a plain `<label>` + `<Link>`, no form.
+
+`setup-form.tsx` has a form but no checkbox.
+
+**Verified working in the same pass, so the swap is sound apart from this:** the checkbox's
+accessible name resolves correctly (`getByRole('checkbox', { name: 'Track this daily' })` matches),
+Radix's hidden bubble input is genuinely invisible (`opacity: 0`, `position: absolute`,
+`pointer-events: none`), the checked state renders a real filled style plus the tick, and — outside
+the reset path — `FormData` carries `"on"` when checked and omits the key entirely when unchecked,
+matching the native contract `createQuest` was written against.
+
+---
+
+## U11 — `src/components/ui/select.tsx` is committed but never imported
+
+**Severity:** Low · **Status:** FIXED — deleted. The U10 fix doesn't need it either; nothing in the
+app uses Radix's Select. **Raised:** 2026-08-19
+
+The quest form's frequency field deliberately keeps a native `<select>` (correctly — and the inline
+comment explaining why is exactly the right way to record that decision). The CLI-generated
+`select.tsx` was committed anyway: 192 lines that nothing imports. Nothing is tree-shaken *into* the
+bundle, so there's no runtime cost — it's a maintenance signal only. Either delete it, or add a
+one-line header saying it's staged for a later phase, so the next reader doesn't take its presence
+as evidence the native select was an oversight.
+
+---
+
+## U12 — the progress bar has no accessible name
+
+**Severity:** Low · **Status:** FIXED — `Progress` now takes a required `label` prop (`aria-label`),
+not optional, so every future usage has to supply one rather than silently omitting it. Dashboard's
+usage passes the same string already rendered visually ("`{pct}% toward {rank} rank`"), so the
+accessible name and the visible text stay in sync by construction. **Raised:** 2026-08-19
+
+`Progress` is a good component — a plain Server Component with a correct `role="progressbar"` and
+the full `aria-valuenow`/`valuemin`/`valuemax` triad, and the reasoning for not using Radix's is
+sound. It has no `aria-label` or `aria-labelledby`, so a screen reader announces "progress bar, 2"
+with no indication of what is 2% complete. The adjacent text ("2% toward D rank") supplies that
+visually but is not programmatically associated. An `aria-label` on the element, or
+`aria-labelledby` pointing at that paragraph, closes it.
+
+---
+
+## Also noted, not new
+
+**P1-5 is unchanged.** `/signup`'s `name`, `email` and `password` inputs still carry no `id` and no
+`<Label htmlFor>`, so their accessible names still come from `placeholder` via the ACCNAME fallback.
+The swap moved them to shadcn's `Input` without adding `Label`, and `Label` is now already imported
+in the codebase — so the cost of closing P1-5 has dropped. Still not a regression, and still
+correctly out of scope for a no-functional-change pass.
+
+**Recorded so nobody removes it as boilerplate:** `@import "shadcn/tailwind.css"` in `globals.css`
+is load-bearing. Radix emits `data-state="checked"`, while the primitives style on `data-checked:` —
+those only connect because that file defines `@custom-variant data-checked` matching **both**
+`[data-state="checked"]` and `[data-checked]`. Drop the import and every checked/unchecked style in
+the primitives stops applying while the components keep working functionally, which is a hard
+failure to trace back to a deleted stylesheet import.
+
+**Test data:** this pass left one user, one goal (`P3 NON-DAILY consequence probe`, the U10
+evidence) and one entry in the local stack. Worth keeping until U10 is fixed, then clearing.

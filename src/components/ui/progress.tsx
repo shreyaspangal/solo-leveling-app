@@ -11,9 +11,15 @@ import { cn } from "@/lib/utils";
 // the client-component cost.
 export function Progress({
   value,
+  label,
   className,
 }: {
   value: number;
+  // Audit finding U12: role="progressbar" plus the aria-value* triad alone
+  // announce "progress bar, 2" with no indication of what's 2% complete --
+  // required, not optional, so a screen-reader-only label is always paired
+  // with the number.
+  label: string;
   className?: string;
 }) {
   const pct = Math.min(100, Math.max(0, value));
@@ -23,6 +29,7 @@ export function Progress({
       aria-valuenow={Math.round(pct)}
       aria-valuemin={0}
       aria-valuemax={100}
+      aria-label={label}
       className={cn("h-2 w-full overflow-hidden rounded-full bg-muted", className)}
     >
       <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
