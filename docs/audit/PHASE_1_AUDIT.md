@@ -39,20 +39,22 @@ entries below, same as Phase 0's `S`/`C`/etc.
 
 | # | Slice | Status |
 |---|---|---|
-| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | BLOCKED (browser access) — code-level findings all fixed (P1-2, P1-3, P1-6) or resolved via ADR (P1-1); P1-4, P1-5 deliberately deferred |
+| 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | AWAITING REVIEW — all 9 findings (P1-1 through P1-9) fixed; awaiting the review session's browser re-verification of P1-6/P1-8/P1-9 specifically, and a green/red flag for the slice |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | PENDING |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
-**Browser access blocker (2026-08-18):** every authenticated route (`/dashboard`, `/setup`,
-`/quests/new`) 307s to `/login` for a signed-out request, which is correct behavior but means
-browser/UI verification of anything past login needs a real session. Neither session can produce
-one: Docker is unavailable on this machine for a local Supabase stack, and creating a test account
-in the real linked project is exactly the external side effect the RLS suite's D8 guard exists to
-prevent doing casually. This affects every remaining slice, not just slice 1 — 2, 3, and 4 are all
-behind auth too. Escalated to the project owner rather than either session picking an answer
-unilaterally; needs one of: Docker enabled locally, or explicit authorization for a disposable test
-account.
+**Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
+machine (see the project owner's decision to enable it locally, over the disposable-test-account
+alternative). Local Supabase (`supabase start --exclude storage-api` — Storage's health check
+failed repeatedly and nothing in the app uses it yet; excluded rather than debugged) is up and
+independently verified by the implementation session: the RLS integration suite passes locally for
+the first time (8/8, not just via CI), and the browser Supabase client's compiled-bundle fix
+(P1-9) was confirmed via a real `next build`. The review session separately obtained its own
+browser access against this same local stack and found P1-7/P1-8/P1-9 through it. Local env vars
+for whichever session needs them: `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH` (from `supabase
+status`, regenerated fresh by `supabase start` — not the linked project's real credentials).
 
 Explicitly out of scope for this pass, not oversights: goal editing/deletion, milestones, the
 global date filter (Phase 3 per `CLAUDE.md`). Flagged here so neither session re-raises them as
@@ -129,7 +131,7 @@ Not added to Phase 0's Pre-Release Checklist as requested: the guardrail's own f
 ---
 
 ### P1-7. P1-6's fix silently decides the "travelling user" question ADR-006 deferred
-**Status:** OPEN (edge case, but it's a streak-correctness question and the ADR explicitly left it open)
+**Status:** FIXED (documentation) — added an addendum to ADR-006 stating the decision explicitly (auto-follow the detected timezone, no pinning to onboarding's) and its real consequence (a timezone shift crossing a day boundary mid-window can skip a day, read as a genuine miss rather than unscheduled). Accepted as a known tradeoff rather than built around right now, per CLAUDE.md's cheap-testing-first rationale — genuinely needs both a large offset and landing mid-streak. Fix path documented for if it matters later (treat a timezone-shift-skipped day as unscheduled, same rule C1/C4 established). No code change. Commit `b8e2638`.
 **Slice:** 1 (follow-on from P1-6's fix, commit `a3b01df`)
 **Where:** `src/app/timezone-sync.tsx` — refreshes `user_metadata.timezone` whenever the detected value differs from the stored one.
 **Finding:** The backfill behavior is right and P1-6 is genuinely fixed by it. But the same comparison that backfills a *missing* timezone also silently re-points an *existing* one the moment the browser reports something different — and the component's own comment names this ("or whose browser's timezone changes, e.g. travel"). ADR-006 explicitly listed that under **Explicitly out of scope**: *"Letting a user manually override their detected timezone (e.g. if they travel) — auto-detected only, for now."* The ADR deferred the question; this fix answers it as "auto-follow", without the ADR being updated to say so.
