@@ -124,6 +124,57 @@ Not added to Phase 0's Pre-Release Checklist as requested: the guardrail's own f
 
 ---
 
+### P1-7. P1-6's fix silently decides the "travelling user" question ADR-006 deferred
+**Status:** OPEN (edge case, but it's a streak-correctness question and the ADR explicitly left it open)
+**Slice:** 1 (follow-on from P1-6's fix, commit `a3b01df`)
+**Where:** `src/app/timezone-sync.tsx` — refreshes `user_metadata.timezone` whenever the detected value differs from the stored one.
+**Finding:** The backfill behavior is right and P1-6 is genuinely fixed by it. But the same comparison that backfills a *missing* timezone also silently re-points an *existing* one the moment the browser reports something different — and the component's own comment names this ("or whose browser's timezone changes, e.g. travel"). ADR-006 explicitly listed that under **Explicitly out of scope**: *"Letting a user manually override their detected timezone (e.g. if they travel) — auto-detected only, for now."* The ADR deferred the question; this fix answers it as "auto-follow", without the ADR being updated to say so.
+
+That matters because a mid-window timezone change moves the day boundary underneath an in-flight streak. Flying LA→Auckland shifts "today" forward by ~19 hours, so a calendar day can be skipped entirely: it ends up with no entries, `dailyCompletion` reads it as a miss rather than as unscheduled, and the streak breaks through no fault of the user — the "silently misrepresents a user's real progress" failure mode again, just reached by a different route. The reverse direction is benign (the `unique (goal_id, date)` constraint means a repeated day upserts rather than duplicating).
+
+Genuinely an edge case — it needs a user who both travels across enough offset to cross a date boundary and is mid-streak — and auto-following is defensible; the alternative (pinning to the onboarding timezone) is arguably worse for someone who relocates permanently. The issue is that it's now decided by implementation rather than by the ADR that explicitly declined to decide it.
+**Guardrail:** Update ADR-006 to state the chosen behavior and its streak consequence, rather than leaving the ADR saying the question is out of scope while the code answers it — the D3 guardrail from Phase 0 applies verbatim here ("whenever an implementation deliberately deviates from its ADR, the ADR itself must be corrected in the same change"). If the streak consequence is unacceptable, the fix is to treat a day skipped purely by a timezone shift as unscheduled rather than missed, which is the `null`-is-neutral rule C1/C4 already established.
+
+### P1-8. Every failed submission wipes the whole quest form
+**Status:** OPEN — **blocking. Found only in a browser; nothing in the code, tests, or build reveals it.**
+**Slice:** 1
+**Where:** `src/app/quests/new/new-quest-form.tsx` — uncontrolled inputs under `<form action={formAction}>` (`useActionState`).
+**Finding:** When the server action returns a validation error, React 19 resets the form on action completion, so **every uncontrolled field is cleared** while the error message is displayed. Reproduced deliberately against a real local stack: filled `title = "Meditate 10 minutes"`, a long `description`, `category = "Personal"`, and an intentionally invalid `targetDate = 2026-01-01`, then submitted. Result:
+
+| field | before submit | after failed submit |
+|---|---|---|
+| `title` | "Meditate 10 minutes" | **""** |
+| `description` | a full paragraph | **""** |
+| `category` | "Personal" | **""** |
+| `targetDate` | 2026-01-01 | **""** |
+| `startDate` | 2026-08-19 | 2026-08-19 (survives) |
+| `dailyTracking` | checked | checked (survives) |
+
+`startDate` survives only because P1-1's fix happened to make it a *controlled* input (`value={today}` + `onChange`); `dailyTracking` survives because `defaultChecked` re-applies. Everything the user actually typed is gone.
+
+The user-facing result is worse than losing input: the error says *"targetDate must be on or after startDate"* while pointing at a form where `targetDate` — and everything else — is now blank, so the message describes a state that no longer exists. This also produced a confusing artifact during review: a follow-up submit failed again because `title` had been silently emptied, not because of anything the user did.
+
+This is the primary failure path of the only form in the slice, and it is invisible to every check that ran before now — unit tests don't render, `tsc`/lint/build don't execute forms, and the code reads correctly.
+**Guardrail:** Return the submitted values in the action's state and feed them back as `defaultValue`, or make the fields controlled. **General rule: with React 19 server actions, a form's error path needs its input-retention behavior verified in a browser — the reset is framework behavior that no amount of reading the component reveals.** Applies directly to Slice 2's checklist and Slice 4's dashboard forms; worth fixing as a shared pattern once rather than per form.
+
+### P1-9. The browser Supabase client can never initialize, so P1-6's fix never runs
+**Status:** OPEN — **blocking. P1-6 is marked FIXED but is non-functional at runtime.**
+**Slice:** 1 (P1-6 follow-on, commit `a3b01df`)
+**Where:** `src/lib/supabase/env.ts` — `const value = process.env[name];` (dynamic key), reached from `src/lib/supabase/client.ts` → `TimezoneSync`.
+**Finding:** Loading `/dashboard` throws in the browser console on every visit:
+
+```
+Error: Missing required environment variable: NEXT_PUBLIC_SUPABASE_URL
+    at requireEnv → supabaseUrl → createClient → TimezoneSync.useEffect
+```
+
+Next.js inlines `NEXT_PUBLIC_*` values into the client bundle only for **statically analyzable** access (`process.env.NEXT_PUBLIC_SUPABASE_URL`). `env.ts` reads them via a **dynamic** key, `process.env[name]`, which the bundler cannot substitute — confirmed in the page: `process` is not defined in the browser at all, so nothing can be read from it.
+
+This was latent rather than new: Phase 0's **S9** review recorded that `src/lib/supabase/client.ts` "is not imported anywhere yet", which is exactly why it never surfaced. `TimezoneSync` is the browser client's **first consumer**, and it fails immediately. So P1-6's timezone backfill never executes, and the pre-existing-account problem P1-6 was filed to fix is still fully live. The server-side path is unaffected (Node has a real `process.env`), which is why every server-rendered date is correct and nothing else looked wrong.
+**Guardrail:** Read each variable by its literal name (`process.env.NEXT_PUBLIC_SUPABASE_URL`) so the bundler can inline it, keeping the throw-if-missing behavior. **General rule: `NEXT_PUBLIC_*` must be accessed as a static literal property; any indirection — a helper taking the name as a parameter, a loop, a computed key — silently yields `undefined` in the browser while continuing to work on the server, so it fails only in the half of the app nobody tested.** Worth a test that imports the browser client in a jsdom/browser environment, since this class of bug passes every Node-environment test.
+
+---
+
 ## Not flagged
 
 **Round 2 (P1-1/P1-2/P1-3 fixes) — verified:**
