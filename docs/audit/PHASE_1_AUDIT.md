@@ -40,7 +40,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | # | Slice | Status |
 |---|---|---|
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
-| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | AWAITING REVIEW — P2-1/P2-2 fixed, commit `c8cbc26` |
+| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
@@ -198,6 +198,40 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 **Where:** `src/app/quests/page.tsx` — `.from("goals").select(...)` with no `.eq("domain", "quest")`.
 **Finding:** The page is titled "Today's Quests" and lives under `/quests`, but the query returns all of the user's goals regardless of `domain`. Harmless today because `createQuest` hardcodes `domain: "quest"` and no other creation path exists — I confirmed nothing else writes a goal. The moment Phase 2 adds Spirituality and Learning (which ADR-001 explicitly designs as the *same* entity differing only by onboarding template), every one of those goals appears in the Quests checklist. RLS scopes rows to the user, not to the domain, so nothing else will catch it.
 **Guardrail:** Add the domain filter now while it's one clause and obviously correct, rather than after Phase 2 makes it a visible bug. **General rule: when one entity serves several user-facing modules by a discriminator column, every module-scoped query needs that discriminator explicitly — the shared-table design ADR-001 chose makes this a recurring requirement, not a one-off.**
+
+---
+
+## Slice 2 — final review verdict: GREEN (2026-08-19)
+
+Re-verified in a browser against local Postgres after `c8cbc26`, using a deliberately mixed
+three-goal fixture so each filter had to reject for its *own* reason rather than both passing by
+accident: a daily-tracked Quest, a **non**-daily-tracked Quest, and a daily-tracked **Spirituality**
+goal.
+
+- **P2-1 — VERIFIED FIXED.** Only the daily-tracked Quest renders. The `daily_tracking = false`
+  Quest is gone from the checklist, which is the exact case that failed before.
+- **P2-2 — VERIFIED FIXED.** The Spirituality goal is excluded too, so the domain filter is doing
+  real work and isn't merely present. This is the case that has no way of failing visibly until
+  Phase 2, so testing it now is the only chance to test it cheaply.
+- **Toggle regression clean.** After the filter change, checking the surviving item still writes
+  exactly one row, `completed = true`, dated `2026-08-19` from the user's stored timezone.
+
+The split of P2-1 into a UI half and an engine half is the right call, and the engine half is
+placed well: adding the condition to `activeGoalsOn` means `dailyCompletion`, `streak` and
+`rankProgress` all inherit it from one choke point — the same seam C4 established, used for the
+same reason. Deliberately **not** editing `engine.ts` during a Slice 2 review is also correct; that
+implementation belongs to Slice 3, and pulling it forward would have started Slice 3 mid-review of
+Slice 2. Leaving "what *overall % only* actually displays" explicitly undecided is right too —
+ADR-001 names the concept without specifying it, and inventing it here would have been scope the
+finding never asked for.
+
+Suite state: **97/97 unit across 9 files**, **8/8 RLS integration** (run independently against local
+Postgres), `eslint` clean, `tsc` clean, tree clean at `335029a`.
+
+**Slice 2 is CLEAR to proceed to Slice 3.** Carry into it: ADR-002's new addendum is now a
+commitment the engine wiring has to honor — `activeGoalsOn` gains the `daily_tracking` condition,
+and the weekly/monthly and zero-goal cases from C1/C4 need to keep passing once real data flows
+through. SC1/SC3's scoped-fetch guardrail is the other thing Slice 3 is explicitly on the hook for.
 
 ---
 
