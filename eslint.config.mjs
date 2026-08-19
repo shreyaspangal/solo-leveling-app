@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // supabase/.temp is gitignored (supabase/.gitignore) but ESLint's flat
+    // config doesn't respect .gitignore automatically -- `supabase start`
+    // drops a minified edge-runtime vendor file in here that isn't ours to
+    // lint (discovered when it produced 150+ prefer-const/no-var errors
+    // the moment local Supabase was first started).
+    "supabase/.temp/**",
   ]),
 ]);
 
