@@ -201,6 +201,67 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 
 ---
 
+### P3-1. `streak` walks back past the window the entries were fetched for
+**Status:** OPEN (currently unreachable through the app's own flows — filed for the latent trap, not a live bug)
+**Slice:** 3
+**Where:** `src/lib/rank-data.ts` bounds entries with `.gte("date", window.windowStart)` (SC1's guardrail, correctly applied) vs. `src/lib/rank-engine/engine.ts`'s `streak`, whose backward walk floors at `earliestGoalStart` — the minimum `start_date` across the goals, which can be **earlier** than `window_start`.
+**Finding:** The fetch boundary and the walk boundary are different values, and nothing ties them together. When a goal predates the rank window, `streak` walks into dates for which entries were deliberately never fetched, reads them as having no completions, and stops. Measured directly — one daily goal started `2026-01-01`, `window_start` `2026-01-31`, 50 consecutive perfect days, evaluated at `2026-02-19`:
+
+| entries passed to `streak` | result |
+|---|---|
+| all 50 days (full history) | **50** |
+| `>= window_start` only (what `getRankData` actually returns) | **20** |
+
+`rankProgress` is unaffected (33% either way) because its walk is forward-bounded by `window_start` itself, so it never reads outside the fetched range. The mismatch is specific to `streak` being the one function whose bound comes from the goals rather than the window.
+
+**Honest severity: not currently reachable.** For `streak` to cross `window_start` backward, every day from `window_start` to today must be 100% *and* a goal must predate the window *and* entries must exist before it. `window_start` is only ever set to the setup day (before any goal exists) or reset forward onto a missed day (which breaks the streak at that day anyway, since the miss date itself is fetched). So today the number is right — but it is right by coincidence of two independent bounds happening to line up, not by construction.
+
+What makes it worth filing anyway: the quest form already accepts a backdated `start_date` with no minimum, so half the precondition is reachable today; and this is a *silent under-report of a streak the user actually earned*, which is the precise failure class ADR-002 and CLAUDE.md single out as the worst kind. Anything that later writes historical entries — Phase 3's historical view, an import, a backfill — makes it live without touching either file.
+**Guardrail:** Make the two bounds one decision rather than two. Either floor `streak`'s walk at `max(earliestGoalStart, window.windowStart)` so it never reads outside what the caller supplies, or widen the fetch to `min(window_start, earliest goal start)`. The first is cheaper and matches ADR-002's framing of the streak as a within-window number. **General rule: when a pure function's iteration bound is derived from different inputs than the query that feeds it, they are one invariant expressed in two places — state it once, or assert it, because they will drift apart silently and the tests that use full fixtures will never see it.**
+
+---
+
+## Slice 3 — review verdict: GREEN with one non-blocking finding (2026-08-19)
+
+Both Slice 2 commitments verified, plus a browser pass.
+
+**SC3's indexing refactor is faithful — proven, not inspected.** An indexing refactor of
+correctness-critical code is exactly where a subtle divergence hides, so rather than reading it I
+built an oracle: a reimplementation of the streak walk using only the **public flat**
+`dailyCompletion`, then compared it against the real (indexed) `streak` across **60 randomized
+scenarios** — 1-4 goals, all four frequencies, random `target_date`s, mixed `dailyTracking`, ~55%
+sparse entry coverage, and randomly-applied pause windows. **60/60 agreed.** Sparse coverage
+matters here: it's what exercises the `Map` key-not-found path (`?? []`), which is the specific
+failure mode this refactor could have introduced. Extracting `completionFor` so both paths share the
+actual scoring logic — rather than duplicating it alongside the lookup — is what makes that
+equivalence structural rather than lucky.
+
+**`daily_tracking` exclusion is correctly placed.** The condition lives in `activeGoalsOn`, so
+`dailyCompletion`, `streak`, `rankProgress` and `personalDevelopmentScore` all inherit it from one
+choke point, exactly as the ADR-002 addendum specified and for the same reason C4 used that seam.
+
+**SC1 scoping honored, and correctly *not* over-applied.** Entries are bounded by
+`.gte("date", window.windowStart)`; the deliberate absence of a domain filter in `getRankData` is
+right and worth having stated in a comment — rank spans all three domains per ADR-001, so this is
+precisely the query that must *not* get the filter P2-2 added to `/quests`. Two adjacent queries
+needing opposite treatment is the kind of thing that gets "fixed" wrongly later.
+
+**Browser pass:** "Your Progress" renders `2% toward D rank`, `1-day streak · Overall score 22`,
+which is internally consistent with the data (1 qualifying day of a 60-day D target ≈ 2%; both of
+today's goals complete → streak 1; PDS 0.5·2 + 0.3·3.3 + 0.2·100 ≈ 22). The no-`RankWindow` state
+was tested with a genuinely fresh account that skipped `/setup`, and renders a "Finish setup to
+start rank tracking" prompt rather than crashing. Console clean throughout, 0 errors and 0 warnings.
+
+**One finding: P3-1**, above — non-blocking and currently unreachable, filed because two bounds that
+must agree are currently only coinciding.
+
+Suite state: **105/105 unit across 9 files**, `eslint` clean, `tsc` clean, tree clean at `93245c6`.
+
+**Slice 3 is CLEAR to proceed to Slice 4**, with P3-1 outstanding at the implementation session's
+discretion — it does not gate the dashboard.
+
+---
+
 ## Slice 2 — final review verdict: GREEN (2026-08-19)
 
 Re-verified in a browser against local Postgres after `c8cbc26`, using a deliberately mixed
