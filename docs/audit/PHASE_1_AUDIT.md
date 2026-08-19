@@ -40,7 +40,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | # | Slice | Status |
 |---|---|---|
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
-| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | PENDING |
+| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | AWAITING REVIEW — commit `e6cfa67` |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
