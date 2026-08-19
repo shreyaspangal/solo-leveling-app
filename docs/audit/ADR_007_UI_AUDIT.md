@@ -551,3 +551,94 @@ failure to trace back to a deleted stylesheet import.
 
 **Test data:** this pass left one user, one goal (`P3 NON-DAILY consequence probe`, the U10
 evidence) and one entry in the local stack. Worth keeping until U10 is fixed, then clearing.
+
+---
+
+## U10 re-verification (`02e67e2`) — **data path FIXED**, one new display-level issue
+
+Re-ran the exact reproduction independently, on a fresh account, against real Postgres.
+
+| scenario | `daily_tracking` in DB | correct? |
+|---|---|---|
+| unchecked → rejected → fix date only → resubmit | `f` | ✅ (was `t` — this was U10) |
+| happy path, checkbox untouched | `t` | ✅ |
+| default-checked → rejected → fix date only → resubmit | `t` | ✅ |
+
+**U10 is fixed.** 105/105 tests, `tsc` clean, `eslint` clean, guardrail untouched (no diff under
+`src/lib/**` or any `actions.ts`), 0 console errors and 0 warnings throughout.
+
+**U12 verified fixed** — the progress bar's `aria-label` reads `2% toward D rank`, matching the
+visible text exactly. Making `label` a required prop rather than optional is the right call: it
+makes the omission a compile error instead of a silent gap. **U11 verified** — `select.tsx` deleted.
+
+**Credit where it's due:** the implementation session reproduced U10 against its *own first fix*
+before reporting it, and found that a plain native controlled checkbox is reset by React 19 the same
+way — a second, independent mechanism with identical symptoms. Correcting my suggested fix direction
+("drop `name`") by reading Radix's source rather than taking it on trust was right, and the reset
+listener does indeed live in `CheckboxTrigger` keyed only on form nesting.
+
+---
+
+## U13 — after a rejected submission the checkbox displays the opposite of what it will submit
+
+**Severity:** Medium · **Status:** FIXED — redesigned rather than patched. Dropped the separate
+hidden input/second ref entirely (also closes U14 below, by construction, not by fixing its
+symptom). The checkbox is now uncontrolled and IS the submitted field (`defaultChecked` + real
+`name`); `onChange` only updates `dailyTrackingRef`. The form's `onReset` reasserts the checkbox's
+own `checked` DOM property from that ref the moment the browser resets it — fixing the display
+directly, not compensating for it elsewhere. **Raised:** 2026-08-19
+
+The fix moved the corruption out of the data path but left it in the display. Measured immediately
+after a rejected submit, having unchecked the box first:
+
+| | value |
+|---|---|
+| visible checkbox `checked` | **`true`** |
+| hidden input value | **`""`** (i.e. not daily) |
+
+So the form shows "Track this daily" ticked while it will submit the opposite. The commit's own
+comment acknowledges this as cosmetic. It isn't quite — it can still produce a wrong outcome, just
+by a longer route:
+
+1. User unchecks "Track this daily".
+2. Submission is rejected for an unrelated reason (bad date).
+3. The box visibly re-checks itself.
+4. User reads that as "fine, it's daily" and accepts it, fixing only the date.
+5. They get a **non-daily** quest, having last seen a ticked box.
+
+The data now correctly honors the user's last *explicit* action, which is the right default. But the
+UI asserts the opposite of it, and a user acting on what they see gets a result they didn't choose.
+Same class as U10 — a silent mismatch between intent and outcome — with the direction reversed.
+
+**Fix direction:** re-assert the visible checkbox from `dailyTrackingRef` when the reset happens —
+an `onReset` on the form, or restoring state alongside the existing `onSubmit` write. The ref is
+already the single source of truth; the display just needs to follow it. Worth confirming in the
+browser that React's post-action reset fires a catchable `reset` event on the form (the U10
+investigation showed a dispatched `reset` reproduces the behavior, which suggests it will).
+
+---
+
+## U14 — the hidden input's default is the opposite of the visible default
+
+**Severity:** Low · **Status:** FIXED — moot, not patched. The U13 redesign removed the separate
+hidden input entirely; there's only one field now (the checkbox itself, `defaultChecked`), so there
+is no second default to disagree with it. **Raised:** 2026-08-19
+
+`<input ref={dailyTrackingInputRef} type="hidden" name="dailyTracking" />` renders with no value, so
+its value is `""` until `onSubmit` writes it. The visible checkbox defaults to **checked**, so the
+two disagree at rest, and the submitted value is correct only because `onSubmit` runs first every
+time.
+
+That holds today — all three scenarios above confirm it. The concern is the failure mode if it ever
+stops holding: any path that submits without `onSubmit` completing sends `""`, silently creating a
+**non-daily** quest, which is both the opposite of the visible state and the value that quietly
+excludes the goal from the rank engine.
+
+**Fix direction:** give the hidden input `defaultValue="on"` so the at-rest value matches the visible
+default. Then a missed `onSubmit` degrades to what the user sees rather than to its inverse. Cheap
+insurance on a field whose wrong value is invisible.
+
+---
+
+**Local test data:** this pass added 1 user and 3 goals (`U10 RECHECK *`). My earlier `P3 NON-DAILY
+consequence probe` row (the original U10 evidence) is also still present and can now be cleared.
