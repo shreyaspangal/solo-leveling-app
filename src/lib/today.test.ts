@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { todayInTimezone } from "./today";
+import { todayInTimezone, userTimezone } from "./today";
 
 describe("todayInTimezone", () => {
   // A fixed moment that straddles the UTC day boundary, so timezones ahead
@@ -37,5 +37,25 @@ describe("todayInTimezone", () => {
   it("defaults `now` to the current time when not provided", () => {
     const result = todayInTimezone("UTC");
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("userTimezone", () => {
+  it("returns the stored timezone string", () => {
+    expect(userTimezone({ user_metadata: { timezone: "America/Los_Angeles" } })).toBe(
+      "America/Los_Angeles",
+    );
+  });
+
+  it("returns undefined when no user is signed in", () => {
+    expect(userTimezone(null)).toBeUndefined();
+  });
+
+  it("returns undefined when user_metadata has no timezone yet", () => {
+    expect(userTimezone({ user_metadata: {} })).toBeUndefined();
+  });
+
+  it("returns undefined rather than a non-string value, if metadata is ever malformed", () => {
+    expect(userTimezone({ user_metadata: { timezone: 12345 } })).toBeUndefined();
   });
 });

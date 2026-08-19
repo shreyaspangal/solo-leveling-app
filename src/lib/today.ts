@@ -5,6 +5,14 @@
 // shifts by the host machine's timezone (a correct, unrelated concern).
 const FALLBACK_TIMEZONE = "UTC";
 
+// Shared read of the value TimezoneSync writes (src/app/timezone-sync.tsx),
+// so every server-side "what is today" call site reads it the same way
+// rather than repeating `user.user_metadata?.timezone` inline.
+export function userTimezone(user: { user_metadata?: Record<string, unknown> } | null): string | undefined {
+  const timezone = user?.user_metadata?.timezone;
+  return typeof timezone === "string" ? timezone : undefined;
+}
+
 export function todayInTimezone(timeZone: string | undefined, now: Date = new Date()): string {
   try {
     // en-CA formats as YYYY-MM-DD, a convenient built-in match for this

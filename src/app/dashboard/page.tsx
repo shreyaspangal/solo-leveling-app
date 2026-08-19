@@ -4,8 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { TimezoneSync } from "../timezone-sync";
 
 // Placeholder: the real Home Dashboard is Phase 1 slice 4. Goal creation
-// (slice 1) exists at /quests/new; this page just links to it until the
-// dashboard assembles goals/streak/rank into one view.
+// (slice 1) is at /quests/new, today's checklist (slice 2) is at /quests;
+// this page just links to them until the dashboard assembles goals/streak/
+// rank into one view.
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
@@ -24,12 +25,20 @@ export default async function DashboardPage() {
         The full Home Dashboard is still being built. Rank tracking starts
         today at E rank, working toward D.
       </p>
-      <Link
-        href="/quests/new"
-        className="mt-6 flex h-11 items-center justify-center rounded-full bg-foreground px-6 font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-      >
-        Create a Quest
-      </Link>
+      <div className="mt-6 flex gap-3">
+        <Link
+          href="/quests"
+          className="flex h-11 items-center justify-center rounded-full bg-foreground px-6 font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+        >
+          Today&apos;s Quests
+        </Link>
+        <Link
+          href="/quests/new"
+          className="flex h-11 items-center justify-center rounded-full border border-zinc-300 px-6 font-medium transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        >
+          Create a Quest
+        </Link>
+      </div>
     </div>
   );
 }

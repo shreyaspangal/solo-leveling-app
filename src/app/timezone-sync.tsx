@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { userTimezone } from "@/lib/today";
 import { createClient } from "@/lib/supabase/client";
 
 // Audit finding P1-6: /setup captures the user's timezone only once, at
@@ -18,7 +19,7 @@ export function TimezoneSync() {
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user && user.user_metadata?.timezone !== detected) {
+      if (user && userTimezone(user) !== detected) {
         supabase.auth.updateUser({ data: { timezone: detected } });
       }
     });
