@@ -32,7 +32,11 @@ export function NavShell() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "relative rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                // Audit finding U19: 32px (px-3 py-1.5) passed WCAG's 24px
+                // minimum but read below Apple/Android's 44px mobile
+                // guidance for a tracker meant to be tapped daily. flex +
+                // min-h-11 gets there without changing the visible pill size.
+                "relative flex min-h-11 items-center rounded-lg px-3 text-sm font-medium transition-colors",
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -51,7 +55,11 @@ export function NavShell() {
         })}
       </div>
       <form action={signOut}>
-        <Button type="submit" variant="ghost" size="sm">
+        {/* h-11 override, not the "sm" size variant (U19) -- shadcn's size
+            scale tops out at h-9 ("lg"), short of the 44px mobile-tap
+            guidance this app's own hand-built buttons already target
+            elsewhere (e.g. the auth-flow submit buttons). */}
+        <Button type="submit" variant="ghost" className="h-11">
           Sign out
         </Button>
       </form>

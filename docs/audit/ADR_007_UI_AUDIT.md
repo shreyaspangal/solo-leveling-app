@@ -1123,3 +1123,129 @@ not `src/lib/`). Not browser-tested by the implementation session -- the two thi
 hardest per the auditer's own front-run (session actually dead server-side, not just client-side;
 reachable + labelled in both viewports) are exactly the kind of thing to verify directly rather than
 reason about from the diff.
+
+---
+
+## Phase 6 — sign-out (`1cf5920`): GREEN, two low findings
+
+**The check that mattered — the session is genuinely dead server-side.** Minted a real session,
+confirmed it authenticated, signed out through the UI, then **replayed the original pre-sign-out
+cookie** against `/dashboard` with redirects disabled:
+
+| | status | location |
+|---|---|---|
+| before sign-out | **200** (dashboard renders) | — |
+| after sign-out, same cookie replayed | **307** | `/login` |
+
+So `auth.signOut()` revoked the session on the server, rather than the UI merely clearing cookies
+and navigating away. That failure mode is indistinguishable from a working sign-out in a browser,
+which is why it's worth testing by replay.
+
+**Shape is right:** `<button type="submit">Sign out</button>` inside a `form` with `method="POST"`,
+i.e. a Server Action rather than a GET link — not prefetchable, not CSRF-triggerable by navigation.
+Visible with a real text label at 1280×900, 390×844 and 320×720; click lands on `/login`; 0 console
+errors.
+
+**Nav fits everywhere tested.** At 320px there is no clipping, no horizontal scroll on the nav, and
+no page-level horizontal overflow. The single-row simplification genuinely works for three items.
+
+---
+
+## U19 — nav touch targets are below platform guidance
+
+**Severity:** Low · **Status:** FIXED — nav links get `flex min-h-11 items-center` (44px, without
+changing the visible pill size); sign-out's `Button` gets an explicit `h-11` className override
+since shadcn's own size scale tops out at `h-9` ("lg"), short of this app's own 44px convention
+used elsewhere (the auth-flow submit buttons). **Raised:** 2026-08-19
+
+Measured heights: nav links **32px**, sign-out **28px**.
+
+To be precise about what this does and doesn't violate: it **passes** WCAG 2.2 SC 2.5.8 *Target Size
+(Minimum)*, which is 24×24 CSS px. It is below the 44×44 that Apple's HIG and Android's guidance
+both recommend for touch. So this is a mobile-usability finding, not an accessibility failure — worth
+fixing on a tracker meant to be tapped daily on a phone, but it should not be described as an a11y
+violation.
+
+---
+
+## U20 — the nav deviates from ADR-007, and the ADR still says otherwise
+
+**Severity:** Low (process) · **Status:** FIXED — ADR-007's nav bullet amended to describe the
+single responsive row that actually shipped, with the reasoning (three items don't justify two
+layouts, verified at 320/390/1280px) and a note on when to revisit (the split, if the nav grows
+enough that one row stops holding up). Same treatment as CLAUDE.md's correction when ADR-007
+itself landed — the doc that's wrong gets fixed in the same change as the finding, not left to
+drift. **Raised:** 2026-08-19
+
+ADR-007's Decision section specifies: *"Nav shell: … Sidebar (desktop) + bottom nav (mobile) match
+the reference's structure."* What shipped is a single responsive top row.
+
+**The simplification itself looks right** — two separate layouts for three items is real complexity
+for no benefit, and the measurements above show one row works down to 320px. This is not a request
+to revert.
+
+The issue is only where it's recorded. It's noted in this audit log, but ADR-007 is the authoritative
+document for *how* things are built (CLAUDE.md's source-of-truth ordering), and it still describes
+the sidebar/bottom-nav split. Anyone reading the ADR to understand the nav gets the wrong answer.
+This project already set the right precedent when ADR-007 landed and corrected CLAUDE.md's superseded
+bullets in the same commit — the same treatment applies here: amend ADR-007's nav bullet with the
+reasoning, rather than leaving the ADR and the code disagreeing.
+
+---
+
+## Phase 7 — QA sweep (against `1cf5920`): one finding
+
+Took all four items. **42 route × viewport × motion-mode checks** (7 routes × 320/390/1280 ×
+normal/reduced), plus the full loop and keyboard traversal.
+
+**Clean across the board:**
+
+| check | result |
+|---|---|
+| horizontal overflow, 7 routes × 320/390/1280 | none anywhere ✅ |
+| console errors, all 42 combinations | zero ✅ |
+| full loop: welcome → signup → setup → create → complete → sign out | every step lands correctly ✅ |
+| streak/score after completing | `0-day · score 1` → `1-day · score 22`, matching Slice 4 ✅ |
+| keyboard sign-out (focus + Enter) | reaches `/login` ✅ |
+| tab order, `/dashboard` | Home → Create Quest → Sign out → checkbox → Create a Quest ✅ |
+| tab order, `/quests/new` | nav first, then fields in visual order, submit last ✅ |
+| focus indicators | every stop matches `:focus-visible` with a ring or outline ✅ |
+| reduced motion, every route | no animation, no errors ✅ |
+
+**A false alarm worth recording:** an initial pass flagged two inputs as having no focus indicator.
+That was an artifact of driving focus with `.focus()`, which does not reliably set `:focus-visible`
+in Chrome. Re-tested with real `Tab` presses and every stop has a visible indicator. Not filed as a
+finding because it wasn't one.
+
+---
+
+## U21 — muted text on cards is 4.47:1, just under AA
+
+**Severity:** Low-Medium · **Status:** FIXED — fixed at the token level, not per-element, since it's
+systematic. Computed rather than guessed: `--muted-foreground`'s lightness raised from `0.6016` to
+`0.62` (chroma/hue unchanged), verified via an OKLCH→sRGB→WCAG-luminance script against both
+surfaces — **5.50:1 vs `--background`** (up from 5.11:1), **4.81:1 vs `--card`** (up from 4.47:1,
+now clearing AA with margin rather than landing exactly on the line). **Raised:** 2026-08-19
+
+Also confirmed per the "worth one check before release" note: Motion's dev-only
+`"Reduced Motion..."` console warning does **not** appear anywhere in the production build's
+compiled chunks (`grep` across `.next/static/chunks/*.js` after a fresh `next build`) — dev-only,
+correctly stripped.
+
+`text-muted-foreground` measures **4.47:1** against `--card`, below the 4.5:1 WCAG AA needs for
+normal-size text. Eight instances found on `/setup` and `/dashboard` at 14px and 12px.
+
+The reason it wasn't caught earlier: `--muted-foreground` is fine on the **page** background —
+5.11:1, measured back at Phase 2. `--card` is lighter (`#0e1830` vs `#05070e`), so the same token
+drops below the line only *inside cards*. Since cards are the dominant container in this UI, this
+affects most secondary text in the app.
+
+It is marginal — 4.47 vs 4.5 — and no single instance is egregious. But it's systematic rather than
+incidental, so it's worth fixing at the token level rather than per-element: lightening
+`--muted-foreground` slightly clears both backgrounds at once. Raising it to roughly `oklch(0.63 …)`
+should be enough; worth re-measuring against both `--background` and `--card` after any change,
+since those are the two surfaces it has to work on.
+
+**Not a finding, but confirm before release:** Motion emits a dev-only console warning
+("You have Reduced Motion enabled…") on the two pages using it. Harmless and informational, but
+worth one check against a production build that it doesn't ship.

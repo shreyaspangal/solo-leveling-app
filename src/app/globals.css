@@ -79,7 +79,13 @@
   --secondary: oklch(0.6123 0.2294 291.39); /* --monarch #8b5cff */
   --secondary-foreground: oklch(0.9629 0.0182 250.59);
   --muted: oklch(0.1826 0.0298 267); /* between background and card */
-  --muted-foreground: oklch(0.6016 0.0645 266.62); /* --muted #6f80a8 */
+  /* Audit finding U21: the reference's --muted (#6f80a8) cleared AA against
+     --background (5.11:1) but fell to 4.47:1 against the lighter --card
+     (#0e1830), below the 4.5:1 AA needs for normal text -- cards are this
+     app's dominant container, so most secondary text hit this. Lightness
+     bumped from 0.6016 to 0.62 (chroma/hue unchanged) computed to clear
+     both surfaces: ~5.50:1 vs --background, ~4.81:1 vs --card. */
+  --muted-foreground: oklch(0.62 0.0645 266.62);
   --accent: oklch(0.8754 0.1416 86.29); /* --gold #ffcf5c */
   --accent-foreground: oklch(0.1297 0.0171 268.35);
   --destructive: oklch(0.692 0.1996 17.04); /* --danger #ff5a6e */

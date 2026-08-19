@@ -62,11 +62,16 @@ primitive API isn't coupled to one visual direction.
   build against, and inventing one has no source of truth.
 - **`--radius: 2px`,** a deliberate departure from shadcn's rounded default — central to the
   reference's sharp "HUD" aesthetic, not an oversight of shadcn's defaults.
-- **Nav shell: built now, wired to only the routes that exist.** Sidebar (desktop) + bottom nav
-  (mobile) match the reference's structure, but list only Home (→ `/dashboard`) and quest creation
-  (→ `/quests/new`). Spirituality/Finance/Fitness/Learning are omitted entirely rather than shown
-  disabled, matching CLAUDE.md's own Phase 2 domain-rollout sequencing — a disabled nav item
-  invites a click and needs a dead-end state designed for no reason.
+- **Nav shell: built now, wired to only the routes that exist — as a single responsive row, not
+  the sidebar (desktop) + bottom-nav (mobile) split originally planned here.** That split matched
+  the reference's structure for its full 6-item nav; at three items (Home, Create Quest, Sign out)
+  it's complexity with no benefit — verified in the browser at 320/390/1280px with no clipping and
+  no page-level horizontal overflow, so the single row genuinely holds up at the smallest supported
+  width, not just in theory. Lists only Home (→ `/dashboard`) and quest creation (→ `/quests/new`).
+  Spirituality/Finance/Fitness/Learning are omitted entirely rather than shown disabled, matching
+  CLAUDE.md's own Phase 2 domain-rollout sequencing — a disabled nav item invites a click and needs
+  a dead-end state designed for no reason. Revisit the split if/when the nav grows enough (more
+  domains, Phase 2) that a single row stops holding up.
 
 ## Rejected alternatives
 
