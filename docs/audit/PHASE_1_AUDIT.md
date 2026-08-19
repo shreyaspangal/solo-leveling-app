@@ -40,7 +40,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | # | Slice | Status |
 |---|---|---|
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
-| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | AWAITING REVIEW — commit `e6cfa67` |
+| 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | AWAITING REVIEW — P2-1/P2-2 fixed, commit `c8cbc26` |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | PENDING |
 | 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | PENDING |
 
@@ -182,7 +182,7 @@ This was latent rather than new: Phase 0's **S9** review recorded that `src/lib/
 ---
 
 ### P2-1. `daily_tracking` is written at creation and then never read — non-daily goals still appear in the daily checklist
-**Status:** OPEN — **blocking for Slice 2.** Contradicts ADR-001 directly.
+**Status:** FIXED — `/quests`'s query now selects `daily_tracking` and the checklist filter requires it alongside `scheduledOn()`. The deeper half (what a `daily_tracking = false` goal contributes to `dailyCompletion` once Slice 3 wires the engine) is decided and documented in a new ADR-002 addendum — excluded entirely, via one more condition on `activeGoalsOn`, the shared choke point C4 already established — but not yet implemented, since that's genuinely Slice 3's code, not Slice 2's; the guardrail only asked for the decision to be made "before Slice 3 wires the engine," not for Slice 3 to be pulled forward. What "overall % only" actually displays is explicitly left undecided, per the addendum's own scoping. Verified against real local Postgres with three goals (daily-tracked quest, non-daily-tracked quest, daily-tracked spirituality goal): only the correctly-scoped one survives both filters. 97/97 tests, tsc, lint, build clean. Commit `c8cbc26`.
 **Slice:** 2
 **Where:** `src/app/quests/page.tsx` — the goals query doesn't select `daily_tracking`, and the filter is `scheduledOn(goal, today)` alone. `scheduledOn` (`rank-engine/engine.ts`) only knows about `frequency`/`start_date`/`target_date`; it has no notion of daily tracking, correctly so.
 **Finding:** ADR-001 defines the field unambiguously: `daily_tracking: boolean // if false, goal is tracked as overall % only, no per-day checklist`. The quest form captures it (P1-8 made it a controlled input) and `createQuest` writes it, but **nothing in the codebase ever reads it back** — grepped: the only occurrences are the form, the insert, and the Zod schema.
@@ -193,7 +193,7 @@ The consequence is bigger than one list rendering wrong, which is why this is bl
 **Guardrail:** Filter the checklist to `daily_tracking = true` (and select the column, which the query currently doesn't). More importantly, decide and document what a `daily_tracking = false` goal contributes to `dailyCompletion` **before Slice 3 wires the engine** — the honest reading of ADR-001 is that it should be excluded from the per-day scoring entirely and tracked as milestone/overall progress, which is a different question the ADR gestures at but doesn't settle. **General rule: a schema field that is collected but never read is not "unused" — it is a promise to the user that the UI is already making and the backend isn't keeping.** Worth grepping for other write-only fields at the same time.
 
 ### P2-2. `/quests` selects every domain, not just Quests (latent until Phase 2)
-**Status:** OPEN (latent, low — flagged now because the fix is one clause and the cost arrives silently)
+**Status:** FIXED — added `.eq("domain", "quest")` to the goals query. Verified against real local Postgres: a daily-tracked Spirituality goal created alongside two Quests-domain goals does not appear in the query's results. Commit `c8cbc26`.
 **Slice:** 2
 **Where:** `src/app/quests/page.tsx` — `.from("goals").select(...)` with no `.eq("domain", "quest")`.
 **Finding:** The page is titled "Today's Quests" and lives under `/quests`, but the query returns all of the user's goals regardless of `domain`. Harmless today because `createQuest` hardcodes `domain: "quest"` and no other creation path exists — I confirmed nothing else writes a goal. The moment Phase 2 adds Spirituality and Learning (which ADR-001 explicitly designs as the *same* entity differing only by onboarding template), every one of those goals appears in the Quests checklist. RLS scopes rows to the user, not to the domain, so nothing else will catch it.
