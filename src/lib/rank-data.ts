@@ -8,8 +8,17 @@ export interface RankData {
 }
 
 // Fetches everything the rank engine (ADR-002) needs for the signed-in
-// user, scoped per SC1's guardrail: entries are bounded to
-// `>= window.window_start`, never "pull all entries for the user."
+// user, scoped per SC1's guardrail: entries are bounded, never "pull all
+// entries for the user." The lower bound is `min(window_start, earliest
+// goal start_date)`, not `window_start` alone -- ADR-002's addendum
+// (2026-08-19, audit finding P3-1) explains why: `streak`'s own walk floors
+// at the earliest goal's start_date (a deliberately window-independent
+// bound, per this ADR's "decoupled" principle), so when a goal predates the
+// window, the fetch must still reach back that far or streak silently
+// under-counts. Still a real bounded query, not unbounded -- an old
+// start_date with no real entry history before it costs nothing extra,
+// since the date index scans actual rows in range, not the nominal span.
+//
 // Deliberately outside rank-engine/ -- that module stays pure/DB-agnostic
 // (its own header comment); this is the Supabase-specific glue the engine's
 // design assumes some caller provides.
@@ -65,11 +74,17 @@ export async function getRankData(
   }
 
   const goalIds = goals.map((g) => g.id);
+  const earliestGoalStart = goals.reduce(
+    (min, g) => (g.startDate < min ? g.startDate : min),
+    goals[0].startDate,
+  );
+  const entriesFrom = earliestGoalStart < window.windowStart ? earliestGoalStart : window.windowStart;
+
   const { data: entryRows } = await supabase
     .from("goal_entries")
     .select("goal_id, date, completed")
     .in("goal_id", goalIds)
-    .gte("date", window.windowStart);
+    .gte("date", entriesFrom);
 
   const entries: GoalEntry[] = (entryRows ?? []).map((row) => ({
     goalId: row.goal_id,

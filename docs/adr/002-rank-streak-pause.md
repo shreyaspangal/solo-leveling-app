@@ -347,6 +347,41 @@ mixing daily-tracked and non-daily-tracked goals in the same window doesn't let 
 affect grace, streak, or `pct`. To be written when Slice 3 implements this addendum, alongside
 extending the `Goal` fixture builder in `engine.test.ts` with a `dailyTracking` field.
 
+## Addendum (2026-08-19): `streak` is not bounded by the rank window — the data layer must fetch what it needs (audit finding P3-1)
+
+Slice 3's review found that `getRankData` (`src/lib/rank-data.ts`) bounds its entries fetch to
+`>= window.window_start` (SC1's guardrail), while `streak`'s own backward walk floors at
+`earliestGoalStart` — the earliest `start_date` across the goals passed in, which can be *earlier*
+than `window_start`. When a goal predates the window, `streak` walks into dates whose entries were
+never fetched, silently under-counting a real streak. Not currently reachable through the app's own
+flows (`window_start` is only ever set to the setup day, before any goal exists, or reset forward
+onto a missed day that would independently end the streak anyway) — but the quest form already
+accepts a backdated `start_date` with no minimum, so half the precondition is live today, and
+anything that later writes historical entries (Phase 3's historical view, an import, a backfill)
+makes the other half live too.
+
+**The tempting cheap fix — floor `streak`'s walk at `max(earliestGoalStart, window.windowStart)` —
+is the wrong one.** This ADR's opening line states the three displayed numbers are "deliberately
+decoupled — computed by separate functions, not derived from each other," and `streak`'s existing
+`earliestGoalStart` floor was added specifically to keep the walk self-contained in its own inputs
+*rather than coupling it to `RankWindow` state* (see the floor's own comment above). Bounding the
+walk to `window_start` would introduce exactly that coupling: a user's displayed "current streak"
+would silently reset to a shorter number the moment their rank window resets, even on days they
+genuinely didn't miss — conflating "which rank climb you're on" with "how many days in a row you've
+shown up," which are different questions by this ADR's own design.
+
+**Decision: fix the data layer, not the engine.** `getRankData`'s entries fetch is bounded to
+`min(window.windowStart, earliest goal start_date across the fetched goals)`, not `window_start`
+alone. This still satisfies SC1's guardrail in spirit — a real, bounded `WHERE` clause, never "pull
+all entries for the user" — while ensuring the entries `streak` receives always cover the range its
+own already-decided, decoupled bound (`earliestGoalStart`) requires. A goal with a pathologically
+old `start_date` and no real entry history before `window_start` costs nothing extra in practice:
+`goal_entries_goal_id_date_idx` scans actual rows in range, not the nominal width of the date span,
+so a wide-but-sparse range is cheap regardless of how wide the *dates* are.
+
+**Test surface addition:** `getRankData`'s effective lower bound is `min(window_start, earliest
+goal start)`, not `window_start` alone, when a goal predates the window.
+
 ## Test surface (write before implementation)
 
 - `dailyCompletion`: goals with no entries, weekly goal not due today, mixed domains, zero active goals → null not 0
