@@ -114,7 +114,11 @@ Two distinct consequences, worth separating:
 ---
 
 ### P1-6. ADR-006's timezone backfill is scoped out but tracked nowhere actionable
-**Status:** FIXED — added `src/app/timezone-sync.tsx` (`TimezoneSync`, a client component rendering nothing), mounted in `/dashboard` — the hub every authenticated user passes through repeatedly. On mount, compares the browser's detected timezone against `user_metadata.timezone` and calls `supabase.auth.updateUser` only when they differ, so it's a no-op read-and-compare on every visit that doesn't need a write. Covers both pre-`a41a234` accounts (never captured) and a timezone that changes later (e.g. travel) — the latter wasn't the original ask but falls out of the same mechanism for free and stays within ADR-006's "auto-detected only" scope, not a manual-override feature.
+**Status: REOPENED — the fix below is correct in design but does not execute. See P1-9.** `TimezoneSync` calls the browser Supabase client, which throws on every `/dashboard` load because `env.ts` reads `NEXT_PUBLIC_*` via a dynamic key that Next.js cannot inline into the client bundle. Verified in a real browser against a local stack, 2026-08-19. The backfill has therefore never run, and the problem this finding was filed for is still fully live.
+
+*(Status corrected by the review session rather than the implementation session, which owns Status lines under the session-split convention. Done deliberately and attributed: the entry asserted that a fix worked when browser evidence showed it does not, and an audit record that misstates whether a fix is live is a worse failure than a lane violation. The original implementation note is preserved verbatim below — nothing has been rewritten, only prefixed. Implementation session: fix P1-9, re-verify, and set this back to FIXED yourself.)*
+
+**Original implementation note (unchanged):** FIXED — added `src/app/timezone-sync.tsx` (`TimezoneSync`, a client component rendering nothing), mounted in `/dashboard` — the hub every authenticated user passes through repeatedly. On mount, compares the browser's detected timezone against `user_metadata.timezone` and calls `supabase.auth.updateUser` only when they differ, so it's a no-op read-and-compare on every visit that doesn't need a write. Covers both pre-`a41a234` accounts (never captured) and a timezone that changes later (e.g. travel) — the latter wasn't the original ask but falls out of the same mechanism for free and stays within ADR-006's "auto-detected only" scope, not a manual-override feature.
 
 Not added to Phase 0's Pre-Release Checklist as requested: the guardrail's own framing was "revisit if it matters before public launch," premised on the gap staying open until then. It doesn't stay open — this fix closes it now, in the same round it was found, so there's nothing left for a pre-launch checklist to track. `docs/adr/006-user-day-boundary.md`'s "Explicitly out of scope" list is updated to say so rather than left describing the pre-fix state. tsc/lint/test(90/90)/build clean. Commit `a3b01df`.
 **Slice:** 1 (follow-on from P1-1's fix)
@@ -158,7 +162,7 @@ This is the primary failure path of the only form in the slice, and it is invisi
 **Guardrail:** Return the submitted values in the action's state and feed them back as `defaultValue`, or make the fields controlled. **General rule: with React 19 server actions, a form's error path needs its input-retention behavior verified in a browser — the reset is framework behavior that no amount of reading the component reveals.** Applies directly to Slice 2's checklist and Slice 4's dashboard forms; worth fixing as a shared pattern once rather than per form.
 
 ### P1-9. The browser Supabase client can never initialize, so P1-6's fix never runs
-**Status:** OPEN — **blocking. P1-6 is marked FIXED but is non-functional at runtime.**
+**Status:** OPEN — **blocking. P1-6's fix is non-functional at runtime; P1-6 has been reopened accordingly.**
 **Slice:** 1 (P1-6 follow-on, commit `a3b01df`)
 **Where:** `src/lib/supabase/env.ts` — `const value = process.env[name];` (dynamic key), reached from `src/lib/supabase/client.ts` → `TimezoneSync`.
 **Finding:** Loading `/dashboard` throws in the browser console on every visit:
