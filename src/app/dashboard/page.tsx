@@ -126,7 +126,7 @@ export default async function DashboardPage() {
             to start rank tracking.
           </Card>
         ) : (
-          <Card className="mt-6 p-4">
+          <Card brackets className="mt-6 p-4">
             <p className="text-sm text-muted-foreground">Your Progress</p>
             <p className="mt-1 font-medium">
               {progress.pct}% toward {rankData.window?.rankTarget} rank

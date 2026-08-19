@@ -111,7 +111,9 @@ everywhere."
 
 ## U3 — the app has no sign-out affordance, and the nav shell is the moment to decide
 
-**Severity:** Medium · **Status:** OPEN · **Raised:** 2026-08-19
+**Severity:** Medium · **Status:** DECIDED (owner, 2026-08-19) — sign-out gets built into phase 6's
+nav wiring, not tracked as a separate slice. Not yet implemented; this is the decision record, the
+work lands with phase 6. **Raised:** 2026-08-19
 
 `grep` across `src/` returns **zero** references to `signOut`, "sign out", "log out", or "logout".
 There is no way for a signed-in user to end their session from the UI — the session simply persists.
@@ -762,3 +764,48 @@ the same mistakes don't get regenerated. Each rule names the finding it came fro
 6. **React 19 function components accept `ref` as a plain prop — `forwardRef` is not required.**
    Don't assume a shared primitive can't take a `ref` and fall back to a raw element because of it;
    verify first (`tsc` will confirm it type-checks).
+
+---
+
+## U10 / U13 / U14 — final verdict (`107b5e2`): **GREEN, all three closed**
+
+Full reproduction re-run end to end on a fresh account against real Postgres.
+
+| scenario | `daily_tracking` | correct? |
+|---|---|---|
+| unchecked → rejected → fix date only → resubmit | `f` | ✅ |
+| happy path, control untouched | `t` | ✅ |
+
+| state check | result |
+|---|---|
+| after the rejected submit | `aria-checked=false`, hidden `""`, FormData `""` ✅ |
+| on fresh load (`defaultChecked`) | `aria-checked=true`, hidden `"on"`, tick rendered ✅ |
+| accessible name | `getByRole('checkbox', { name: 'Track this daily' })` matches ✅ |
+| Space / click toggle | both toggle correctly ✅ |
+| Enter | toggles, does not submit (`type="button"`) ✅ |
+
+**U13 is closed too** — the display and the submitted value now agree in every state, because there
+is only one source of truth. **U14 is moot by construction**: the hidden field's value is derived
+from the same state that renders the toggle, so the two cannot disagree at rest.
+
+**Why this attempt holds where two didn't:** the toggle is a `<button>`, which is not a form control,
+so the reset algorithm has nothing to restore; and the submitted field is a controlled hidden
+`Input`, which uses the same controlled-value path every text and date field in this form already
+survives a reset with. The earlier attempts each left one foot in the reset's path — Radix's own
+listener, then React's restore of a controlled `checked`, then a write racing the reset algorithm.
+
+**The lint guardrail works** — verified in both directions rather than read:
+
+- raw `<button>` in `src/app/probe.tsx` → **errors**, with a message naming the shared primitive and
+  requiring a documented reason to disable.
+- the same code in `src/components/ui/button.tsx` → **allowed**, so the wrapper files aren't caught
+  by their own rule.
+
+Scoping it per-file rather than per-directory is the right call: a directory-level exemption would
+have silently re-permitted raw elements in any future file added beside the wrappers.
+
+Suite: 105/105, `tsc` clean, `eslint` clean, 0 console errors and 0 warnings throughout.
+
+**Phase 3 is CLEAR.** Remaining open in this workstream: **U3** (no sign-out — owner decision, due
+before the nav wiring phase) and **U2** (Motion's inline styles constrain S2's CSP fix — for
+whenever S2 is worked, not this workstream).

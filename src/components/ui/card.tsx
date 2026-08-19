@@ -2,21 +2,44 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+// Corner-bracket accents matching the client reference's ".panel > .c"
+// treatment (ADR-007) -- four small L-shaped borders in the primary color,
+// one per corner, purely decorative (aria-hidden). Opt-in via `brackets`
+// rather than the default: most cards (list items, form containers) read
+// better plain, and the reference itself only brackets its more prominent
+// panels, not every bordered box on the page.
+function CardBrackets() {
+  const corner = "absolute size-3.5 border-primary"
+  return (
+    <>
+      <span aria-hidden className={cn(corner, "top-0 left-0 border-t-2 border-l-2")} />
+      <span aria-hidden className={cn(corner, "top-0 right-0 border-t-2 border-r-2")} />
+      <span aria-hidden className={cn(corner, "bottom-0 left-0 border-b-2 border-l-2")} />
+      <span aria-hidden className={cn(corner, "right-0 bottom-0 border-r-2 border-b-2")} />
+    </>
+  )
+}
+
 function Card({
   className,
   size = "default",
+  brackets = false,
+  children,
   ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: React.ComponentProps<"div"> & { size?: "default" | "sm"; brackets?: boolean }) {
   return (
     <div
       data-slot="card"
       data-size={size}
       className={cn(
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        "group/card relative flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
         className
       )}
       {...props}
-    />
+    >
+      {brackets && <CardBrackets />}
+      {children}
+    </div>
   )
 }
 
