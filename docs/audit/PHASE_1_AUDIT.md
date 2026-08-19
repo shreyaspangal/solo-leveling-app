@@ -42,7 +42,7 @@ entries below, same as Phase 0's `S`/`C`/etc.
 | 1 | Goal creation (Zod-validated `createGoal` action + minimal form) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 1 — final review verdict" below |
 | 2 | Entry tracking (`upsertGoalEntry` action + today's-quests checklist) | **CLEAR** — GREEN verdict 2026-08-19; see "Slice 2 — final review verdict" below |
 | 3 | Rank engine data wiring (scoped Supabase fetch → engine, per SC1/SC3's guardrail) | **CLEAR** — GREEN verdict 2026-08-19 (P3-1 non-blocking, fixed anyway, commit `182d07a`); see "Slice 3 — review verdict" below |
-| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | AWAITING REVIEW — implemented, browser-verified against local Postgres, commits `pending` (see "Slice 4 — implementation notes" below) |
+| 4 | Home Dashboard v1 (assembles 1-3 into the real `/dashboard` page) | AWAITING REVIEW — implemented, browser-verified against local Postgres, commit `5b699a7` (see "Slice 4 — implementation notes" below) |
 
 **Browser access blocker — resolved (2026-08-19).** Docker is now installed and working on this
 machine (see the project owner's decision to enable it locally, over the disposable-test-account
@@ -284,7 +284,7 @@ means for this slice specifically:**
 
 **Checks:** `tsc` clean, `eslint` clean, **105/105** unit tests (unchanged — this slice added no
 new pure-function logic to test), `next build` clean (route table shows `/dashboard` as dynamic,
-`/quests` as static since it's now a bare redirect). Commit hash to follow once pushed.
+`/quests` as static since it's now a bare redirect). Commit `5b699a7`.
 
 ---
 
