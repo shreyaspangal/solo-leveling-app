@@ -1249,3 +1249,769 @@ since those are the two surfaces it has to work on.
 **Not a finding, but confirm before release:** Motion emits a dev-only console warning
 ("You have Reduced Motion enabled…") on the two pages using it. Harmless and informational, but
 worth one check against a production build that it doesn't ship.
+
+---
+
+## U19 / U20 / U21 (`5a5e02c`) — all VERIFIED FIXED. **ADR-007 workstream CLEAR.**
+
+**U21 — contrast.** Re-ran the full 42-check sweep: **zero contrast failures**, down from 8.
+`--muted-foreground` raised `0.6016 → 0.62` clears both surfaces at once — the token-level fix, as
+opposed to patching the eight instances, which was the right shape since the problem was systematic.
+
+**U19 — touch targets.** Every nav item now **44px** tall (was 32/28) at 320, 390 and 1280, with no
+clipping, no nav scroll, and no page-level horizontal overflow at any of them. Meets the 44×44
+platform guidance, not just WCAG's 24×24 floor.
+
+**U20 — ADR amended.** ADR-007's nav bullet now describes the single responsive row, gives the
+reasoning (the split matched the reference's 6-item nav; at three items it's complexity with no
+benefit), cites the browser verification, and records a revisit trigger for when the nav grows. The
+ADR and the code now agree.
+
+Suite: 105/105, `tsc` clean, `eslint` clean, guardrail holds. The only remaining console output
+anywhere is Motion's dev-only reduced-motion notice, confirmed absent from production chunks.
+
+**Every finding raised in this workstream is now closed except two deliberate deferrals:** **U17**
+(hydration mismatch + flash on the dormant rank-up reveal — waits for a real promotion trigger) and
+**U2** (Motion pins `style-src 'unsafe-inline'` — for whenever S2 is worked).
+
+---
+
+## U22 — `/setup` asks a question it gives the user no way to answer
+
+**Severity:** Medium (UX) · **Status:** OPEN · **Raised:** 2026-08-19
+
+The page is headed **"What do you want to track?"** and the body says *"Every area you add
+contributes to your overall rank."* Both sentences promise a choice. The five domains render as a
+plain `<ul>` of `<Card>`s with **no checkbox, no input, no interactive affordance of any kind** —
+confirmed in the browser, where the only form controls on the page are the hidden `timezone` input
+and the Continue button.
+
+The **non-persistence is deliberate and correct**: per ADR-002, which domains a user opted into is
+implied by the goals they create, so there is no preference to store, and `setup/page.tsx` says so.
+No argument with that decision.
+
+The defect is that the copy and the layout still present it as a selection screen. A user reads a
+question, sees five cards, tries to pick, and nothing responds — then the only button says
+"Continue". Either the copy should describe rather than ask (e.g. "Here's what you can track"), or
+the cards should be genuinely selectable and feed the first goal-creation step. The current state
+reads as a broken form rather than an intentional overview.
+
+Relevant to the "coming soon" workstream: this is the page that already carries the *Coming later*
+precedent, so whatever treatment is chosen there should resolve this at the same time.
+
+---
+
+## U23 — Spirituality and Learning are marked available, with no way to use them
+
+**Severity:** Medium · **Status:** OPEN · **Raised:** 2026-08-19 (independently confirmed)
+
+`src/lib/domains.ts` sets `available: true` for **Quests, Spirituality and Learning**, and
+`available: false` (rendered "Coming later") for Finance and Fitness only.
+
+But the only goal-creation route is `/quests/new`, and `createQuest` hardcodes `domain: "quest"`
+server-side. `/dashboard` filters its checklist to `.eq("domain", "quest")`. So there is no path
+anywhere in the app to create or view a Spirituality or Learning goal.
+
+From the user's point of view Spirituality and Learning are exactly as unavailable as Finance and
+Fitness — they're just not labelled that way. A user who reads the setup screen and picks
+Spirituality has been told it's ready and will find nothing.
+
+This is consistent with the plan, not a deviation from it: CLAUDE.md sequences Spirituality and
+Learning into Phase 2 as near-identical Quest variants. The bug is only that `domains.ts`'s
+`available` flag describes *ADR-001's data model* (the Goal entity genuinely does support them)
+rather than *what a user can actually do today*, which is what the flag renders as.
+
+Cheapest correct fix is a one-line change to `available` for those two, so the label matches
+reality until Phase 2 builds them. Worth deciding deliberately though, since it makes the setup
+screen show three of five domains as "Coming later" — which is an honest representation of a
+Quests-only pilot, but is a stronger statement about the product's maturity than the current screen
+makes, and that's the owner's call rather than a silent correction.
+
+---
+
+## U24 — Auth inputs have no accessible name (placeholder only)
+
+**Severity:** High · **Status:** OPEN · **Raised:** 2026-08-20 (browser-verified)
+
+On `/login` and `/signup` the email and password fields carry **no `<label>` and no
+`aria-label`** — the only text is a `placeholder`. Measured in a real browser:
+`document.querySelectorAll("label").length === 0`, and for both `email` and `password`,
+`input.labels.length === 0 && !input.getAttribute("aria-label")`.
+
+Consequences:
+- Screen readers announce the fields with no name (WCAG 2.2 SC 4.1.2, SC 1.3.1).
+- The placeholder disappears on input, so the field's purpose is lost while typing (SC 3.3.2).
+- Autofill heuristics degrade.
+
+This is independent of the styling questions below and should be fixed regardless of how the
+"coming soon" scope lands. Note the reference prototype **does** get this right: it renders
+uppercase micro-labels (NAME / EMAIL ADDRESS / PASSWORD) above each field.
+
+---
+
+## U25 — The reference's panel system is absent from every surface but one
+
+**Severity:** Medium (ADR-007 scope) · **Status:** OPEN · **Raised:** 2026-08-20 (browser-verified)
+
+ADR-007 scopes in the reference's "UI styles, components, navigation". Walking both apps
+side-by-side at identical viewports, the reference's core visual kit is applied to exactly one
+surface in our build (the dashboard rank card, via `Card brackets`). Everywhere else — welcome,
+rules, login, signup, setup, task list, quest form — content sits unframed on a flat background.
+
+Reference kit, per surface: bracketed panel frame · panel header bar (icon + pulse dot +
+letterspaced uppercase label + rule) · grid-texture background with vignette · uppercase
+micro-labels · outline buttons.
+
+Ours: solid filled pill buttons in sentence case, no panel frames, no headers, flat background.
+The button language is *inverted* rather than merely unstyled — the reference's primary action is
+a bordered transparent control, ours is a solid cyan pill.
+
+This is the most likely referent for the project owner's 2026-08-20 remark about "bad animations
+and styles". Flagged as a scope question rather than a defect list: it is a system-level gap, and
+building additional screens on the current kit multiplies the rework.
+
+---
+
+## U26 — Navigation structure does not match the reference
+
+**Severity:** Medium (ADR-007 scope) · **Status:** OPEN · **Raised:** 2026-08-20 (browser-verified)
+
+Reference: a persistent **left rail** of six icon+label items (Command, Spirituality, Finance,
+Fitness, Learning, Quests) plus a persistent rank card, and on mobile a **bottom nav bar** of the
+same six as icon+short-label tiles (verified at 390px: HOME/SPIRIT/FINANCE/FITNESS/LEARN/QUESTS,
+no horizontal overflow).
+
+Ours: a single static top row of three text links — `Home`, `Create Quest`, `Sign out` — at both
+desktop and mobile (`nav` computed `position: static`, `top: 0`).
+
+ADR-007 was amended in `5a5e02c` (U20) to describe the single responsive row as deliberate. That
+amendment is still coherent for a one-domain pilot, but it is now the open conflict with the
+owner's 2026-08-20 "coming soon" request, which presumes the multi-item nav exists. Recorded here
+so the decision is made explicitly rather than by drift.
+
+---
+
+## U27 — Reference surfaces with no counterpart, inventoried
+
+**Severity:** Informational · **Status:** OPEN · **Raised:** 2026-08-20 (browser-verified)
+
+Walked the reference in a real browser (all 6 views, desktop + mobile, plus modals and the date
+bar). Counterpart status in our build:
+
+| Reference surface | Ours | Note |
+|---|---|---|
+| Command: Hunter Status, Today's Tasks | present (reduced) | no rank path E→D→C→B→A→S, no ring, 1 stat line vs 8 stats |
+| Command: Today's Overview, Statistics & Insights, 5 nav cards, Upcoming Deadlines, Long-Term Progress | absent | documented omission in `dashboard/page.tsx`; needs multi-domain data |
+| Quests: Active/Completed/Upcoming tabs, quest cards, detail pane, category progress | absent | **data already exists** — cheapest real win |
+| Quests: milestone checklist | absent | **genuine gap** — in ADR-001 + schema, no UI, no phase owns it |
+| Spirituality, Learning views | absent | Phase 2; ADR-001 already covers them |
+| Finance view | absent | Phase 2; **ADR-004 unwritten** |
+| Fitness view | absent | Phase 2; **ADR-005 unwritten** |
+| Global date bar | absent | Phase 3 by design |
+| Toasts, WeekStrip, ViewingChip, generic FormModal | absent | net-new primitives |
+
+Minor, noted in passing: the reference's date-bar popover does not close on `Escape` and
+intercepts pointer events while open. Not our defect — recorded only so it is not replicated.
+
+---
+
+## Scope decision (2026-08-20) — U22–U27 resolution
+
+Project owner reviewed U22–U27 and made four calls, recorded in full in ADR-007's 2026-08-20
+amendment:
+
+1. Full reference nav (left rail/bottom bar, 6 items) + full visual kit rollout — reverses U20.
+2. Spirituality/Learning: coming-soon disabled nav tiles (not omitted, not built real).
+3. Quests gaps (tabs, detail pane, category progress, milestone checklist): build all of it.
+4. U22/U23/U24: fix all three now, bundled into this workstream.
+
+Phase plan going forward: **Phase 8** (visual primitives) → **Phase 9** (nav rebuild, supersedes
+U20) → **Phase 10** (Quests feature build) → **Phase 11** (U22/U23/U24 fixes). Each phase follows
+the same build → full check suite → owner review → commit → auditer verify cadence as Phases 1–7.
+No commits without the owner's explicit review and go-ahead (standing rule since `02e67e2`).
+
+U20 is superseded, not retroactively wrong — its reasoning held for the 3-item nav it evaluated;
+this decision changes the item count the reasoning was applied to, not the reasoning itself.
+
+---
+
+## U28 — Phase 8 primitives are masked by 11 page-level overrides
+
+**Severity:** High (blocks Phase 8's own goal) · **Status:** OPEN · **Raised:** 2026-08-20
+**Scope:** pre-review verification of uncommitted Phase 8 work
+
+Phase 8 rewrote `button.tsx`'s `default`/`outline`/`secondary` variants to the reference's
+`.sysbtn` family, correctly setting `rounded-lg` (= `--radius` = 2px). But Phase 8 deliberately
+touched no page content, and **every Button callsite in the app overrides the result**:
+
+    src/app/welcome/page.tsx:25          h-12 w-full rounded-full
+    src/app/rules/page.tsx:53            h-12 w-full rounded-full
+    src/app/login/page.tsx:20,25,54      h-11 w-full rounded-full   (x3)
+    src/app/signup/page.tsx:21,26,57     h-11 w-full rounded-full   (x3)
+    src/app/setup/setup-form.tsx:27      h-12 w-full rounded-full
+    src/app/quests/new/new-quest-form.tsx:151  h-11 w-full rounded-full
+    src/app/dashboard/page.tsx:197       h-11 w-full rounded-full
+
+11 overrides across 7 files. `tailwind-merge` resolves the callsite class last, so the measured
+computed radius on `/login`'s primary button is **3.35544e+07px** — a full pill — against the
+reference's **2px**. Height is 44px against the reference's 41px, and horizontal padding 10px
+against the reference's 18px.
+
+The consequence: **U25's headline finding ("the button language is inverted") is not fixed.**
+The variant is correct in isolation and wrong everywhere it is actually rendered. Verifying
+`button.tsx` alone would have reported a pass; only measuring rendered pages catches it.
+
+Fix is a page-content change (drop the `rounded-full` / `h-11` / `h-12` overrides and let the
+variant own radius and height), which is outside Phase 8's stated scope — so this needs to be
+sequenced explicitly rather than assumed done.
+
+---
+
+## U29 — `tracking-widest` is relative; the reference's letter-spacing is absolute
+
+**Severity:** Medium · **Status:** OPEN · **Raised:** 2026-08-20 (computed-style measured)
+
+Phase 8 uses Tailwind's `tracking-widest` on Button, Label and `PanelHeader`. That is `0.1em` —
+it scales with font-size. The reference uses absolute pixel values. Measured, both apps live:
+
+| Surface | Reference | Ours | Delta |
+|---|---|---|---|
+| `.sysbtn` / Button | **2px** | 1.4px (0.1em @ 14px) | −30% |
+| `.lbl` / Label | **1.5px** | 1.2px (0.1em @ 12px) | −20% |
+| `.phead` / PanelHeader | **2px** | 1.2px (0.1em @ 12px) | −40% |
+
+Letterspacing is the dominant cue in the reference's display type, so a systematic 20–40% shortfall
+reads as "close but not it" rather than as an obvious bug. Needs `tracking-[2px]` /
+`tracking-[1.5px]` (or tokens) rather than the named scale step.
+
+Font-size differs too: Label is 12px (`text-xs`) against the reference's **10px**, and Button is
+14px against **13px**. Combined with the above, our Label is 20% larger with 20% less tracking.
+
+Also measured, lower severity:
+- Button hover glow: ours `0 0 24px -4px var(--primary)`; reference `0 0 24px rgba(56,207,255,.35)`.
+  The `-4px` spread tightens the halo and ours uses the token at full opacity rather than 35%.
+- `secondary` (`.sysbtn.mon`): ours applies a **purple** glow. In the reference, `.sysbtn.mon:hover`
+  overrides only `background`, so the base `.sysbtn:hover` **cyan** glow persists. Not renderable
+  today — no `secondary` Button exists in any page — so this is a code-level note only.
+- Disabled opacity: ours `0.5`, reference `0.4`.
+
+**Verified correct, no action:** body background wash and grid texture (geometry, 44px cell, alphas
+16%/12%/3.5%, and radial mask all match; `oklch(from ...)` derivation is a faithful substitution),
+the `PanelHeader` dot (6px, `0 0 8px` glow). Note the reference's dot does **not** pulse — the
+`pulse` keyframe is used only on the "Arise, Player" footer — so our static dot is correct.
+
+**Functional regression: none.** Full UI flow re-run (signup → setup → create quest → complete):
+streak advanced 0→1, score 1→22, zero console errors, and the fixed grid overlay does not
+intercept pointer events (`elementFromPoint` over the dashboard `h1` returns the `h1`).
+
+---
+
+## U28 / U29 — fixed (pending re-verification)
+
+**Status:** fix applied, awaiting auditer re-check · **2026-08-20**
+
+- **U28** — removed the `rounded-full` override from all 11 flagged Button callsites (`welcome`,
+  `rules`, `login` ×3, `signup` ×3, `setup/setup-form`, `quests/new/new-quest-form`,
+  `dashboard/page.tsx`). Height overrides (`h-11`/`h-12`, U19's touch-target sizing) are untouched
+  — only the shape override is gone, so buttons now resolve to the variant's actual `rounded-lg`
+  (= `--radius` = 2px), matching the reference instead of being masked by it. This was a one-line
+  class removal per callsite, not new page content — treated as completing Phase 8's stated goal
+  (buttons actually look like the reference), not as Phase 9/10 scope creep.
+- **U29** — `button.tsx`: `tracking-widest`→`tracking-[2px]`, added `text-[13px]` to the sysbtn
+  family; hover glow changed to `shadow-[0_0_24px_oklch(from_var(--primary)_l_c_h_/_35%)]` (no
+  spread, 35% alpha, matching the reference's box-shadow exactly) and applied to `secondary` too
+  (reference's `.sysbtn.mon:hover` only overrides `background`, the cyan glow persists — this was
+  wrongly purple before); base `disabled:opacity-50`→`disabled:opacity-40`. `label.tsx`:
+  `text-xs tracking-widest`→`text-[10px] tracking-[1.5px]`. `card.tsx` `PanelHeader`:
+  `tracking-widest`→`tracking-[2px]`.
+- Full check suite re-run clean after both fixes: `tsc`/`eslint`/`vitest` (105/105, no `src/lib/**`
+  diff)/`build`, all green.
+
+Not yet re-verified against the reference in the browser — that's the auditer's next pass, not a
+self-report.
+
+---
+
+## U28 / U29 — re-verification: both CONFIRMED FIXED
+
+**Status:** VERIFIED FIXED · **Re-checked:** 2026-08-20 (computed styles measured on all 7 changed pages)
+
+Measured live in a real browser, every Button callsite across `/welcome`, `/rules`, `/login`,
+`/signup`, `/setup`, `/quests/new`, `/dashboard`:
+
+| Property | Reference | Measured (all callsites) | |
+|---|---|---|---|
+| border-radius | 2px | **2px** | ✅ |
+| letter-spacing | 2px | **2px** | ✅ |
+| font-size | 13px | **13px** | ✅ |
+| disabled opacity | 0.4 | **0.4** | ✅ |
+| hover glow | `0 0 24px rgba(56,207,255,.35)` | `0 0 24px 0` @ 35% cyan | ✅ |
+
+Label on `/quests/new`: **10px, 1.5px tracking, Chakra Petch, uppercase, muted** — matches `.lbl`.
+The `secondary` glow correction is right: the reference's `.sysbtn.mon:hover` overrides only
+`background`, so the base cyan glow persists; ours is now cyan rather than purple.
+
+`grep` confirms zero `rounded-full` remaining in `src/app/**`. The two in `src/components/ui/**`
+(the PanelHeader dot, the Progress track) are correct and unrelated.
+
+**Functional regression across 7 changed page files: none.** Full UI flow re-run — signup → setup →
+create quest → complete quest: streak 0→1, score 1→22, zero console errors at desktop and mobile.
+
+Height overrides (`h-11`/`h-12`, 44/48px vs the reference's 41px) were deliberately retained for
+U19 touch-target sizing. Correct call — WCAG 2.2 SC 2.5.8 and the platform 44px guidance outrank
+pixel-matching the reference here. Horizontal padding (10px vs 18px) is moot while every button is
+`w-full`; it will matter if any button becomes auto-width.
+
+### Remaining, minor
+
+**Label box model.** Ours is `display: flex` with `margin-bottom: 12px`; the reference's `.lbl` is
+`display: block` with `margin-bottom: 5px`. Field labels sit ~7px further from their inputs than
+the reference, which loosens every form. Not caught by the type-level checks above.
+
+**Nav items — the scope rationale is factually wrong.** `button.tsx`'s comment justifies leaving
+`ghost`/`link` plain on the grounds that they "map to the reference's non-sysbtn controls (nav
+items, text links)". But the reference's `.nav-item` is not plain:
+
+    .nav-item{font-family:'Chakra Petch';font-size:13px;letter-spacing:1px;
+              text-transform:uppercase;padding:11px 14px;border-left:2px solid transparent;
+              color:var(--muted);}
+    .nav-item.on{color:#eaf4ff;border-left-color:var(--sys);
+                 background:linear-gradient(90deg,rgba(56,207,255,.16),transparent);}
+
+Measured, our nav links are sentence-case, 14px, `letter-spacing: normal`. Leaving the nav for a
+later phase is a fine *decision*; the stated *reason* misdescribes the reference and should be
+corrected so it isn't relied on later. Interacts with U26 (nav structure).
+
+**U24 is still open and was not addressed.** Re-measured after this pass: `/login` and `/signup`
+still have **zero `<label>` elements** and no `aria-label` across all five fields (login email +
+password; signup name + email + password). These two files were edited in this pass, so the fix
+was adjacent but not made. Still High.
+
+---
+
+## Three remaining items — fixed
+
+**Status:** fix applied, awaiting auditer re-check · **2026-08-20**
+
+- **U24 (High) — closed.** Added `<Label htmlFor>` + matching `id` for all five fields:
+  `/login` (email, password), `/signup` (name, email, password). Uses the same `Label` primitive
+  restyled in Phase 8, so these get the `.lbl`-matching micro-label treatment for free.
+- **Nav-item comment — corrected.** `button.tsx`'s rationale for leaving `ghost`/`destructive`/
+  `link` untouched no longer claims `.nav-item` is unstyled. It now says what's actually true:
+  `ghost` isn't how nav items are styled today (`nav-shell.tsx` styles its `<Link>`s directly, not
+  via `Button`'s `ghost` variant), and matching `.nav-item`'s look (13px Chakra Petch, uppercase,
+  1px tracking, active-state border+gradient) is Phase 9's job, not this one.
+- **Label box model — deliberately deferred, not fixed.** Confirmed as a judgement call rather
+  than a defect: the 12px gap comes from `new-quest-form.tsx`'s `space-y-3` on the whole form
+  (uniform spacing between every field, not a margin on `Label` itself), where the reference's 5px
+  is specific to the label→its-own-input relationship. Matching it exactly means giving each field
+  its own wrapper with tighter internal spacing — a form-structure change to Quests' create form,
+  not a Phase 8 primitive change. Left as `space-y-3`'s uniform rhythm for now; flagging as a
+  Phase 10 (Quests feature build) candidate rather than fixing under Phase 8's stated scope.
+
+Full check suite re-run clean: `tsc`/`eslint`/`vitest` (105/105, no `src/lib/**` diff)/`build`.
+
+---
+
+## U24 — CONFIRMED FIXED (accessibility tree verified)
+
+**Status:** VERIFIED FIXED · **Re-checked:** 2026-08-20
+
+Verified via Chrome's **accessibility tree**, not DOM presence. All five fields now expose a
+resolved accessible name:
+
+| Page | Field | AX role | AX name | `label[for]` → `id` |
+|---|---|---|---|---|
+| `/login` | email | textbox | EMAIL ADDRESS | ✅ |
+| `/login` | password | textbox | PASSWORD | ✅ |
+| `/signup` | name | textbox | NAME | ✅ |
+| `/signup` | email | textbox | EMAIL ADDRESS | ✅ |
+| `/signup` | password | textbox | PASSWORD | ✅ |
+
+Playwright's independent accessible-name matching (`getByLabel(..., {exact:true})`) resolves
+exactly one element per name on each page, confirming the association rather than mere co-location.
+
+Keyboard traversal on `/login`: Continue with Google → Continue with Apple → **Email address** →
+**Password** → Log In → Sign up. Both fields reachable and named.
+
+**Functional, driven entirely through the new labels** (`getByLabel` fills, no selector shortcuts):
+signup → `/setup` → `/dashboard`; sign out → `/login`; log back in → `/dashboard`. Zero console
+errors.
+
+### One observation, low priority
+
+The AX name comes back **uppercase** ("EMAIL ADDRESS") because the restyled `Label` applies
+`text-transform: uppercase`. The DOM text is sentence case ("Email address") and that is what most
+screen readers announce, so this is not a defect. Worth knowing only because a minority of AT
+configurations read all-caps strings letter-by-letter, and because the reference has the same
+property — so matching it is faithful, not accidental. No action recommended.
+
+**Phase 8 verification is complete.** U24, U25 (button language), U28 and U29 are all measured
+fixed, with no functional regression across the twelve files touched. The one deliberate deferral
+is the Label box-model spacing (12px uniform rhythm from `space-y-3` vs the reference's 5px
+label-to-input gap), correctly identified as form-content work rather than a primitive change.
+
+---
+
+## Owner decisions — 2026-08-20
+
+**Standing rule.** Asked to decide U22, U23 and U26, the project owner's answer was:
+
+> "this should be based on the reference ui right? whats the doubt here? Unless its broken or not
+> suitable as per the ui/ux best practices"
+
+**Match the reference by default.** Deviate only where the reference is broken or violates UI/UX
+best practice, and state the reason when deviating. Questions the reference already answers should
+not be escalated. This rule is binding on the remainder of the ADR-007 workstream.
+
+**U26 — build the reference nav. APPROVED.** Left rail of six icon+label items plus the persistent
+rank card; mobile bottom bar with the same six. Supersedes ADR-007's "single responsive row" (the
+U20 amendment in `5a5e02c`), which needs rewriting rather than defending. Also supersedes ADR-007's
+rejection of disabled nav items — the stated reason ("a disabled nav item invites a click and needs
+a dead-end state designed for no reason") does not hold against a standard pattern. Coming-soon
+states apply to the four unbuilt domains.
+
+Three carry-overs, all legitimate deviations under the rule: absolute letter-spacing rather than
+`tracking-widest` (U29); the 44px minimum touch target rather than the reference's ~35px `.nav-item`
+(U19 — WCAG 2.2 SC 2.5.8 outranks pixel-matching a prototype); and `aria-current` on the active item
+(U18).
+
+**U22 — Option B. Copy fix only; cards stay non-interactive.** The reference does make setup areas
+selectable (`disabled={!areas.length}`), so the default rule would say "make them selectable". This
+is the exception the "unless it's broken" clause exists for: ADR-002 establishes that domain opt-in
+is implied by the goals a user creates, so a selection has nothing to persist into, and a control
+that silently discards the user's choice is worse than the current inert screen. Reword the copy so
+it describes rather than asks. Making the selection real is the better end state once Phase 2 gives
+domains meaning — it is a data-model change and was deliberately not taken mid-UI-workstream.
+
+**U23 — follows from U26**, no separate decision. Once the nav shows all six with coming-soon
+states, `domains.ts` must be consistent with it.
+
+**Session ownership.** `dev-session` (previously `main`, previously `solo-leveling-app-d1`) owns
+implementation; this session owns verification. `main-dev [72ef2b]` and `auditer [f6d93c]` are stale
+sessions not visible to the owner and have been asked to stand down.
+
+---
+
+## Phase 9 (nav rebuild) + U22/U23 — built, pending verification
+
+**Status:** built, awaiting auditer verification · **2026-08-20**
+
+Implements the owner's three 2026-08-20 decisions in full.
+
+**Nav rebuild (supersedes U20).** New `src/components/ui/nav-links.tsx` (client, active-state via
+`usePathname`) + `nav-shell.tsx` rewritten as an async Server Component that fetches its own rank
+data and now wraps page content as `children` rather than sitting beside it. Structure: a thin
+top header (brand + relocated sign-out, all breakpoints) + left rail with all 6 modules and a
+persistent compact rank card (desktop, `md:flex`) + fixed bottom bar with the same 6 as tiles
+(mobile, `md:hidden`). Icons match the reference's own import list exactly (Home/Sparkles/Wallet/
+Dumbbell/GraduationCap/Swords). Spirituality/Finance/Fitness/Learning are `href: null` → rendered
+as non-Link, `aria-disabled` tiles with a "Soon" badge (rail only — bottom-bar tiles are too
+narrow at 9px text for a legible second label). Letter-spacing/font-size use the same
+audit-derived absolute values as Phase 8 (U29): `tracking-[1px]`/`text-[13px]` rail,
+`tracking-[.5px]`/`text-[9px]` bottom bar. Touch targets are `min-h-11` (44px) throughout —
+deliberately not the reference's ~35px, per U19/WCAG 2.2 SC 2.5.8. `aria-current="page"` preserved
+on the active item (U18). `dashboard/page.tsx` and `quests/new/page.tsx` updated to pass their
+content as `NavShell`'s children instead of rendering it as a sibling.
+
+Sign-out relocated to a thin header reachable at every breakpoint, not the reference's topbar
+avatar-dropdown — building that menu needs a new dropdown primitive and a displayable user name,
+neither of which exist; deferred as real scope beyond a nav rebuild, not approximated.
+
+**U22 — copy fixed, cards still non-interactive (owner: Option B).** `/setup`'s heading changed
+from "What do you want to track?" to "Here's what you can track" — describes rather than asks,
+since ADR-002 gives a selection nothing to persist into.
+
+**U23 — `domains.ts` brought in line with the nav.** `available: false` for Spirituality and
+Learning (previously `true` with no route that could act on it), matching Finance/Fitness and the
+new nav's coming-soon tiles. This is a diff under `src/lib/**` outside the `utils.ts`/`motion.ts`
+exception ADR-007's Test Surface section names — flagged deliberately: `domains.ts` is display-only
+config (no test file, not under `rank-engine/`), and the guardrail's purpose (protect 105/105 and
+rank/streak/pause correctness while doing paint) isn't implicated by a boolean flag in an
+onboarding-display file. Recorded here rather than silently exempted.
+
+Full check suite: `tsc`/`eslint`/`vitest` (105/105)/`build`, all green. 18 files changed total
+across Phase 8 + Phase 9 + U22/U23/U24, still uncommitted, still no "reviewed" from the owner.
+
+---
+
+## U30 — CRITICAL: Phase 9 nav takes down the entire authenticated app (RSC boundary violation)
+
+**Severity:** Critical · **Status:** OPEN · **Raised:** 2026-08-20 (browser + HTTP verified)
+
+**Both authenticated routes return HTTP 500.** Measured with a live session cookie:
+
+    /dashboard    HTTP 500
+    /quests/new   HTTP 500
+    /setup        HTTP 200
+    /welcome      HTTP 200
+    /login        HTTP 200
+
+Every route that renders `NavShell` is down. The app is unusable for any signed-in user.
+
+**Cause.** `src/components/ui/nav-shell.tsx` is an async **Server** Component. It defines
+`NAV_ITEMS` at module scope with lucide icon *function components* as values:
+
+    const NAV_ITEMS: NavItem[] = [
+      { key: "home", label: "Command", short: "Home", icon: Home, href: "/dashboard" },
+      ...
+    ];
+
+and passes that array across the boundary to `NavLinks`, which is `"use client"`:
+
+    <NavLinks items={NAV_ITEMS} variant="rail" />
+
+Functions are not serializable across the RSC boundary. Runtime error:
+
+    Error: Functions cannot be passed directly to Client Components unless you
+    explicitly expose it by marking it with "use server".
+      {$$typeof: ..., render: function Swords}
+      at NewQuestPage (src/app/quests/new/page.tsx:17:5)
+
+**This is U16 recurring, in the same component.** U16 (`2854488`) was the same class of defect —
+a client-module export called across the boundary, producing a 500 on `/dashboard` while every
+static check passed. Same again here: `tsc`, `eslint`, `vitest` 105/105 and `next build` were all
+reported green, because `next build` does not exercise cookie-reading dynamic routes and none of
+the four checks cross the RSC boundary at runtime.
+
+**Fix direction:** the icon identities must originate inside the client module. Move `NAV_ITEMS`
+into `nav-links.tsx`, or keep the config server-side but make it serializable (a string icon key
+mapped to a component inside `NavLinks`). Passing `LucideIcon` as a prop from a Server Component
+cannot work regardless of typing — note `NavItem`'s `icon: LucideIcon` field type-checks fine,
+which is precisely why `tsc` did not catch it.
+
+**Process note.** This is the second Critical RSC-boundary regression in this workstream, both
+invisible to the full green check suite. A green suite is not evidence that authenticated routes
+render. Recommend a smoke check — one authenticated GET against `/dashboard` and `/quests/new`
+asserting HTTP 200 — before any "pending verification" handoff. Both prior occurrences were caught
+only because a browser pass ran afterwards.
+
+**Not yet verified, blocked by this:** nav computed styles at either breakpoint, `aria-current`,
+keyboard traversal, coming-soon tile accessible state, and the functional pass. All of Phase 9's
+verification is pending a working build.
+
+---
+
+## U30 — fixed, plus the two adjacent items and the process ask
+
+**Status:** fix applied, awaiting auditer re-verification · **2026-08-20**
+
+**The 500.** `NAV_ITEMS` (in `nav-shell.tsx`, a Server Component) carried lucide icon *component*
+values, passed as a prop to `NavLinks` (`"use client"`) — functions can't cross that boundary.
+Fixed by moving the icon identities into the client module: `nav-links.tsx` now owns an `ICONS`
+map keyed by string, and `NavItem.icon` is `keyof typeof ICONS`, not `LucideIcon`. `nav-shell.tsx`
+passes `icon: "home"` etc. — plain serializable strings — the only thing that can legally cross.
+`LogOut` stays imported directly in `nav-shell.tsx` since it's rendered there, in the same Server
+Component, never passed as a prop value across the boundary.
+
+**Verified locally before handing back**, since the last two "pending verification" handoffs both
+turned out not to be: built (`next build`), started a production server on a spare port, signed up
+a real throwaway user against local Supabase, and made a real authenticated `fetch` against
+`/dashboard` and `/quests/new` — both **200**. Full check suite green throughout (`tsc`/`eslint`/
+`vitest` 105/105/`build`).
+
+**Process ask — smoke check added.** New `src/app/route-smoke.integration.test.ts`: signs up a
+real user against local Supabase, uses `@supabase/ssr`'s own `createServerClient` (via
+`auth.setSession` into a plain in-memory cookie jar) to produce the *actual* `sb-*-auth-token`
+cookie(s) rather than hand-encoding the format, and asserts HTTP 200 from a real `fetch` against
+`/dashboard` and `/quests/new`. Opt-in via `SMOKE_BASE_URL` (needs a running Next server, which
+this test doesn't start) rather than wired into the default `npm run test` — same reasoning as
+`rls.integration.test.ts`'s opt-in-via-Docker pattern, and confirmed excluded from the default
+suite (still 105/105, not 107). Run via `SMOKE_BASE_URL=http://127.0.0.1:<port> npx vitest run
+--config vitest.config.integration.mts route-smoke` against a server already listening. This is a
+smoke check for this exact failure class (a real request across a real RSC boundary to a real
+signed-in session) — not a substitute for the auditer's fuller browser pass.
+
+**Item 1 (bottom-bar coming-soon a11y) — fixed.** `nav-links.tsx`'s disabled tiles now use
+`role="link"` (so `aria-disabled` is on an element with a widget role, not a bare `<div>` where AT
+generally ignores it) plus a `sr-only` `", coming soon"` span on the bottom bar (the rail keeps its
+visible "Soon" badge) — the unavailable state no longer relies on color/dimming alone (WCAG 2.2 SC
+1.4.1).
+
+**Item 2 (`domains.ts` guardrail exception) — documented, not just disclosed.** Added to ADR-007
+under "U23 / `domains.ts` guardrail exception (2026-08-20)" — the rule's original text is left
+intact (not silently rewritten) with a pointer to the dated exception, so the guardrail stays a
+line a future session can trust at face value.
+
+---
+
+## `npm run smoke` — built per the owner directive relayed 2026-08-20
+
+**Status:** built, self-verified including a deliberate-failure test · **2026-08-20**
+
+New `scripts/smoke.mts` + `"smoke": "node scripts/smoke.mts"` in `package.json`. Implements all
+five requirements:
+
+1. **Real auth** — signs up a throwaway user via `@supabase/ssr`'s `createServerClient`
+   (`auth.setSession` into an in-memory cookie jar), the same mechanism `route-smoke.integration.test.ts`
+   used (now deleted — superseded by this script, not kept alongside it as a second smoke
+   mechanism per the checklist's own "no dead code" rule).
+2. **Derived route list, not hardcoded** — walks `src/app` for any `page.tsx` referencing
+   `NavShell`; a new route adopting the shell is covered automatically.
+3. **Doesn't trust status alone** — scans the response body for generic Next.js/React error
+   signatures (`__next_error__`, the dev error-overlay custom element, etc.) in addition to the
+   status code.
+4. **Fast, dependency-light** — plain `fetch`, no new dependency (`@supabase/ssr` is already a
+   project dependency). Runs via Node 24's native TypeScript support, no `tsx`/`ts-node` added.
+5. **Non-zero exit, names the route + first body line** on failure.
+
+**Self-verified, not just built:** ran it green against a real server (2 routes OK), then
+deliberately reintroduced a runtime-only break (`if (process.env.SMOKE_DELIBERATE_BREAK) throw
+...` — gated so `tsc`/`next build` stay clean, matching how U16/U30 actually type-checked fine),
+confirmed `smoke` caught it (`HTTP 500`, `__next_error__` marker, exit 1, both routes named), then
+reverted the break and confirmed clean again. The auditer asked to do exactly this themselves next
+— already done here so their pass can focus on whether the *mechanism* is sound, not re-discover
+whether it fires at all.
+
+**`CLAUDE.md` now links `docs/audit/CODE_CHECKLIST.md`** under "TDD workflow," per the ask — read
+before the next phase, not after.
+
+**Not done, flagged rather than built:** CI wiring (D1/D5, still open from Phase 0). Needs
+`supabase start` in the workflow to give `smoke` something real to hit — real work, scoped
+honestly rather than promised cheaply here. Surfaced to the owner as a proposal, not started.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke`, all five now the bar
+for "ready for review."
+
+---
+
+## U30 — VERIFIED FIXED. Phase 9 nav — VERIFIED. Smoke gate — verified, two gaps.
+
+**Re-checked:** 2026-08-20
+
+**U30 fixed.** `/dashboard` and `/quests/new` both HTTP 200 with a live session. The fix is the
+right shape: `NavItem.icon` is now `keyof typeof ICONS`, the `ICONS` map lives inside the client
+module, and only plain strings cross the boundary. Nothing non-serializable is passed.
+
+### Phase 9 nav — all measured against the reference
+
+| Check | Reference | Measured | |
+|---|---|---|---|
+| Rail font-size / tracking | 13px / 1px | **13px / 1px** | ✅ |
+| Bottom-bar font-size / tracking | 9px / .5px | **9px / .5px** | ✅ |
+| Touch targets | ~35px | **44px rail, 47px bottom** | ✅ intended U19 deviation |
+| `aria-current` on active | — | `page` | ✅ |
+| Horizontal overflow, both breakpoints | — | none | ✅ |
+| Rail at mobile / bottom bar at desktop | — | correctly not rendered | ✅ |
+
+**Coming-soon tiles — fully correct.** Full CDP accessibility tree (`Accessibility.getFullAXTree`):
+
+    role: "link", name: "SPIRITUALITY Soon", ignored: false, properties: [disabled=true]
+
+Playwright's role engine agrees: `getByRole("link", {name:/spirituality/i, disabled:true})` → 1.
+Tiles are not focusable (`element.focus()` does not move `activeElement`) and are correctly absent
+from tab order — measured order is Sign out → Command → Quests, skipping all four. The bottom bar
+carries a screen-reader-only ", coming soon"; the rail carries the visible "Soon" badge. State is
+no longer conveyed by colour alone.
+
+**Correction to my own earlier note.** I previously flagged that `aria-disabled` on a role-less
+`<div>` would not be announced. That reading was wrong twice over: the role *is* applied, and my
+evidence was an artifact of Playwright's `accessibility.snapshot()`, which returns the **filtered**
+tree and surfaced the `StaticText` child (`role: "text"`) rather than the parent link node. The
+full CDP tree shows the correct role and state. **Method note for future passes: use
+`Accessibility.getFullAXTree` via CDP for authoritative role/state; the filtered snapshot will
+produce false negatives.**
+
+**U22 verified:** `/setup` now reads "Here's what you can track"; measured zero non-hidden inputs
+and zero interactive cards. Option B honoured. **U23 verified:** "Coming later" now shown for
+Spirituality and Learning, consistent with the nav.
+
+**Functional:** create quest → complete → streak 0→1, score 1→22, zero console errors, both
+breakpoints.
+
+### Smoke gate — works, with two gaps
+
+Tested the gate's failure path rather than trusting it, per the principle that a gate nobody has
+seen fail is not yet a gate.
+
+| Scenario | Result | |
+|---|---|---|
+| Working server | `smoke OK` both routes, exit 0 | ✅ |
+| Routes returning 500 | `smoke FAIL`, exit 1 | ✅ |
+| Server unreachable | fails with a useful message | ✅ |
+| Missing env | exit 1 | ✅ |
+| **HTTP 200 with RSC error text in body** | **reported OK, exit 0** | ❌ |
+
+Route discovery walks for `NavShell` references rather than hardcoding a list, so a new route is
+covered by default. Good call — better than what I asked for.
+
+**Gap 1 — `npm run smoke` does not work out of the box.** The script reads
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` from `process.env` but never loads `.env.local`, where this project
+keeps it. A cold `npm run smoke` exits 1 with an env error rather than checking anything. It exits
+non-zero, so it cannot silently pass — but a session that runs it, sees an env complaint, and moves
+on has gained nothing. Load `.env.local` the way Next does.
+
+**Gap 2 — `BODY_ERROR_MARKERS` omits the RSC boundary string.** The list covers
+`Internal Server Error`, `Application error: a client-side exception`, `nextjs-portal` and
+`__next_error__`. It does not include "Functions cannot be passed directly to Client Components" —
+the literal U30 error. In fairness the realistic manifestations are covered (U30 itself produced a
+500, which the gate catches), and my 200-with-error-body test was synthetic. Still worth adding the
+string the gate was built for.
+
+---
+
+## Both smoke gaps — fixed
+
+**Status:** fix applied, self-verified · **2026-08-20**
+
+**Gap 1 — `.env.local` now loaded.** `scripts/smoke.mts` reads and parses `.env.local` itself
+(simple `KEY=VALUE`/quoted-value parsing, no new dependency) before reading any env var, filling
+in only variables not already set — an explicit env var on the command line still wins, and a
+missing `.env.local` (e.g. real CI env vars instead of a file) is not an error. Verified with a
+stripped environment (`env -i ... npm run smoke`, only `PATH`/`HOME`/`SMOKE_BASE_URL` set) against
+a live server: two routes OK, exit 0 — the exact cold-start case that failed before.
+
+**Gap 2 — the literal U30 string added** to `BODY_ERROR_MARKERS`: "Functions cannot be passed
+directly to Client Components", alongside the existing generic markers rather than replacing them.
+
+**One correction on my side, matching the auditer's own correction on theirs:** my prior handoff
+described `src/app/route-smoke.integration.test.ts` in the message text, but `scripts/smoke.mts` /
+`npm run smoke` is what actually shipped (the integration-test version was superseded and deleted
+before that handoff went out) — the message just described the wrong artifact. Naming it correctly
+here since the auditer flagged checking the thing named, not the thing built.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke` (verified cold). Phase 8
++ Phase 9 + U22/U23/U24/U30 + the smoke gate are all now ready for the owner's review together.
+
+---
+
+## Smoke gate — both gaps VERIFIED FIXED. ADR-007 workstream CLEAR.
+
+**Re-checked:** 2026-08-20 · independently re-tested, both success and failure paths
+
+| Scenario | Result | |
+|---|---|---|
+| Cold start, stripped env (`env -i PATH HOME SMOKE_BASE_URL`) | `smoke OK` both routes, exit 0 | ✅ |
+| HTTP 200 carrying the U30 string | `smoke FAIL [error marker: "Functions cannot be passed directly to Client Components"]`, exit 1 | ✅ |
+| Routes returning 500 | FAIL, exit 1 | ✅ |
+| Server unreachable | FAIL with a useful message | ✅ |
+
+Gap 1 fixed by parsing `.env.local` in the script before reading any env var, filling only unset
+values, with no new dependency. Gap 2 fixed by adding the literal U30 string to
+`BODY_ERROR_MARKERS`. Both verified here from a clean environment rather than accepted on report.
+
+The gate has now been observed failing for every class of defect it exists to catch, and passing
+when it should. It is a real gate.
+
+### Workstream status
+
+**ADR-007 is CLEAR.** Verified fixed and re-verified across this workstream: U22, U23, U24, U25,
+U28, U29, U30, plus Phase 8 primitives and the Phase 9 nav rebuild. No blocking findings open.
+
+**Still open, all owner-facing rather than defects:**
+- **U2** — Motion's inline `style` attributes constrain how S2 (CSP nonces) can be fixed. Deferred.
+- **U17** — hydration mismatch and flash on the dormant rank-up reveal. Waits for a real promotion
+  trigger to observe.
+- **U27** — inventory of reference surfaces with no counterpart. Milestone UI remains the one
+  genuine gap that no phase owns.
+- **S1 / S2 / S5** — pre-release blockers from the Phase 0 audit, unchanged: shared-store rate
+  limiter, CSP `'unsafe-inline'` → nonces, and Supabase Pro for leaked-password protection plus
+  CAPTCHA (a purchasing decision).
+- **D1 / D5** — no CI pipeline, and CI does not run `next build`. Now more load-bearing than before:
+  `npm run smoke` is only a gate if something runs it. A local script a session can forget is
+  weaker than CI. Recommend smoke joins CI when D1 is addressed — it needs `supabase start` in the
+  workflow, which is real work and should be scoped honestly.
+- **D2** — large uncommitted working tree. Currently ~18 files spanning Phase 8, Phase 9, the smoke
+  gate and the checklist on a single unreviewed diff. A regression inside it cannot be bisected.
+  This is the standing risk in the current state, and it grows with each phase that lands before a
+  commit.

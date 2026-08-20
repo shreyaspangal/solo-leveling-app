@@ -108,6 +108,14 @@ accurate as of the planning conversation, not guaranteed current at build time.)
   regression protection unit tests don't provide.
 - Review and pressure-test agent-written code before merging — don't accept on trust, especially
   around rank/streak logic where a silent bug misrepresents a user's real progress.
+- **Before saying "built, pending verification," read `docs/audit/CODE_CHECKLIST.md`.** It's a
+  maintained list of do's and don'ts, each tied to the audit finding that caused it (RSC boundary
+  violations, primitive-vs-callsite drift, relative vs. absolute units, accessibility, guardrail
+  documentation) — not generic advice, things that actually broke this repo, twice in one case.
+  Includes `npm run smoke` (authenticated route check — `tsc`/`eslint`/`vitest`/`next build` are
+  all structurally blind to a Server Component that only breaks for a signed-in user; two Critical
+  regressions reached handoff behind a fully green suite before this existed). The auditing session
+  maintains it; read it before the next phase, not after.
 
 ## What's explicitly NOT decided yet
 

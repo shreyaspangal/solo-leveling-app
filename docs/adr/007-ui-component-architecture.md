@@ -62,16 +62,26 @@ primitive API isn't coupled to one visual direction.
   build against, and inventing one has no source of truth.
 - **`--radius: 2px`,** a deliberate departure from shadcn's rounded default — central to the
   reference's sharp "HUD" aesthetic, not an oversight of shadcn's defaults.
-- **Nav shell: built now, wired to only the routes that exist — as a single responsive row, not
-  the sidebar (desktop) + bottom-nav (mobile) split originally planned here.** That split matched
-  the reference's structure for its full 6-item nav; at three items (Home, Create Quest, Sign out)
-  it's complexity with no benefit — verified in the browser at 320/390/1280px with no clipping and
-  no page-level horizontal overflow, so the single row genuinely holds up at the smallest supported
-  width, not just in theory. Lists only Home (→ `/dashboard`) and quest creation (→ `/quests/new`).
-  Spirituality/Finance/Fitness/Learning are omitted entirely rather than shown disabled, matching
-  CLAUDE.md's own Phase 2 domain-rollout sequencing — a disabled nav item invites a click and needs
-  a dead-end state designed for no reason. Revisit the split if/when the nav grows enough (more
-  domains, Phase 2) that a single row stops holding up.
+- **Nav shell: the reference's full 6-item structure — left rail (desktop) / bottom bar (mobile),
+  Command/Spirituality/Finance/Fitness/Learning/Quests, with a persistent rank card in the rail.**
+  *(2026-08-20: this bullet originally specified a single responsive 3-item row instead, on the
+  reasoning that a 3-item nav didn't need the reference's split. Superseded, not retroactively
+  wrong for what it evaluated — the project owner's 2026-08-20 scope amendment changed the item
+  count the reasoning was applied to, and a standing instruction that followed it ("this should be
+  based on the reference ui... unless it's broken or not suitable per UI/UX best practices") means
+  the reference is the default going forward, not a judgment call re-litigated per component. Kept
+  here rather than deleted so the reversal itself stays on the record — this doc is a build log,
+  not a snapshot.)* Spirituality/Finance/Fitness/Learning render as disabled "coming soon" tiles —
+  ADR-007's original objection to that pattern ("invites a click and needs a dead-end state
+  designed for no reason") is itself superseded by the same owner instruction: a disabled
+  coming-soon tile is a standard, well-understood pattern, not a dead end. One deliberate deviation
+  from the reference under the "unless not suitable" clause: nav-item touch targets are `min-h-11`
+  (44px), not the reference's ~35px — WCAG 2.2 SC 2.5.8 and platform mobile-tap guidance (U19)
+  outrank pixel-matching the prototype. Sign-out moved off the primary nav into a thin top header
+  (reachable at every breakpoint) rather than the reference's topbar avatar-dropdown menu — that
+  menu needs a new dropdown-menu primitive and a displayable user name, neither of which exist yet;
+  building it is real scope beyond "nav rebuild," not a same-size substitution, so it's deferred
+  rather than approximated.
 
 ## Rejected alternatives
 
@@ -106,7 +116,79 @@ work, **except** `src/lib/utils.ts` (shadcn's CLI-generated `cn()` helper) and `
 (the plan's own named Motion for React presets module — deliberately not placed under
 `src/components/ui/`, which is shadcn's generated-output directory). Any other diff under
 `src/lib/**` — including `today.ts`, `schemas/`, `supabase/`, `rate-limit.ts`, not just the rank
-engine — means scope crept beyond this ADR.
+engine — means scope crept beyond this ADR. *(2026-08-20: one further named exception,
+`src/lib/domains.ts`, added below in the amendment's "U23 / domains.ts guardrail exception"
+note — added there rather than rewritten in here so this original list stays an accurate record
+of what the ADR said at the time, not silently edited to look like it always included it.)*
+
+## Amendment (2026-08-20) — nav reversal + expanded scope
+
+The audit's Phase 7 QA sweep (U22–U27) found that the gap between our build and the reference
+isn't missing screens — it's a missing visual system. The reference's panel kit (bracketed
+frames, header bars with icon+pulse-dot+uppercase label, uppercase micro-labels, outline buttons)
+appears on exactly one surface in our build (the dashboard rank card via `Card brackets`);
+everywhere else is unframed, and our buttons are a *solid filled pill*, the visual opposite of
+the reference's *bordered transparent* primary action. The project owner confirmed this reading
+directly (2026-08-20) and made four scope calls, each superseding a prior decision on its own
+narrow point — the same "explicit change from the project owner" mechanism that opened this ADR
+in the first place:
+
+1. **Nav (reverses U20).** Build the reference's structure — left rail (desktop) / bottom bar
+   (mobile), all 6 items — not the single responsive row U20 committed to. U20's reasoning (3
+   items don't need the split) is superseded, not wrong for what it evaluated; the row was correct
+   for a 3-item nav, and this amendment changes the item count, not the row's math. Sign-out moves
+   off the primary nav (the reference has no sign-out item in its 6) into a small corner
+   affordance — exact placement decided during Phase 9 build, not prescribed here.
+2. **Spirituality/Learning: coming-soon disabled tiles**, not omitted (contra ADR-007's original
+   nav bullet) and not built real (contra pulling Phase 2 forward). This also resolves U23:
+   `domains.ts`'s `available: true` for these two was always wrong for what a user can actually do
+   today (no route creates either) — Phase 11 sets both to `false`, so `/setup` and the nav agree.
+3. **Quests feature build** — tabs (Active/Completed/Upcoming), detail pane, category progress,
+   and the milestone checklist, all in this workstream. Tabs/detail/category-progress use data the
+   app already fetches; milestones need new UI against the table `00000000000001_goal_entity.sql`
+   already created and `goal.ts`'s already-existing `milestoneSchema` — no new ADR, no new
+   migration, this was simply never built.
+4. **Bundle U22/U23/U24** (setup screen's unanswerable question, the `domains.ts` availability
+   mismatch just described, and the login/signup accessible-name gap) into this workstream rather
+   than a separate pass — small, isolated, no scope overlap with the visual/nav work.
+
+### Phase plan (8–11)
+
+- **Phase 8 — visual primitives.** `PanelHeader` (icon + pulse dot + uppercase letterspaced label
+  + rule, matches reference `.phead`), a micro-label pattern for form/stat labels (reference
+  `.lbl`), restyled `Button` variants (`default` becomes the bordered-transparent "sysbtn" look;
+  a new `ghost`-adjacent ADR-007 style for the reference's `.sysbtn.ghost`), grid-texture +
+  vignette background at the root layout. Primitives only — this phase does not touch page
+  content structure, so it's independently reviewable before every screen changes under it.
+- **Phase 9 — nav rebuild.** Left rail + bottom bar, 6 items (Home/Quests active; Spirituality/
+  Finance/Fitness/Learning coming-soon disabled), sign-out relocated, applied across all existing
+  pages. Supersedes U20's row.
+- **Phase 10 — Quests feature build.** Tabs, detail pane, category progress (existing data), and
+  milestone checklist (new Server Action + query against the existing table/schema).
+- **Phase 11 — bug fixes.** U22 (setup copy), U23 (`domains.ts` availability), U24 (auth input
+  accessible names).
+
+Test surface, guardrails, and the "no diff under `src/lib/**` except `utils.ts`/`motion.ts`" rule
+from the original Test Surface section continue to apply, with one addition: Phase 10's milestone
+Server Action is new business logic, not presentation, so it gets its own unit tests (schema
+validation, ordering) same as any other Server Action in this codebase — the blanket `src/lib/**`
+freeze was about not touching the *rank/streak/pause engine* while doing paint, not a ban on all
+new logic for the rest of the workstream's life.
+
+### U23 / `domains.ts` guardrail exception (2026-08-20)
+
+U23's fix (`available: true` → `false` for Spirituality/Learning, matching the nav's coming-soon
+treatment) landed as a two-boolean-flip diff to `src/lib/domains.ts`, which the Test Surface
+section above does not name alongside `utils.ts`/`motion.ts` — flagged by the auditer as a real
+guardrail breach on the letter of the rule, not a grey area, and correctly so: the rule names
+`domains.ts` sits under (`schemas/`, `supabase/`, `today.ts`, `rate-limit.ts`) explicitly, by name,
+as *not* exempt, and a rule that gets silently adjusted whenever a change seems obviously safe
+stops being a bright line the next session can trust at face value. Recorded here as a deliberate,
+disclosed third exception rather than left undocumented: `domains.ts` is display-only onboarding
+config, carries no test file, and sits nowhere near `rank-engine/` — the guardrail's actual purpose
+(protect the 105/105 rank/streak/pause suite from paint-phase collateral damage) isn't implicated
+by it. Scoped narrowly to this one file, this one change — not a general "obviously-safe changes
+are fine" precedent for the rest of the workstream.
 
 ## Explicitly out of scope
 
@@ -115,5 +197,8 @@ engine — means scope crept beyond this ADR.
   implementation reference stands for everything except the UI/UX layer this ADR covers.
 - Toasts — the reference has one, current MVP doesn't need it. If added later, `Sonner` is the
   validated choice per `pick-ui-library`, not a hand-rolled implementation.
-- Building nav entries or any UI for Spirituality/Finance/Fitness/Learning — those domains don't
-  exist yet; CLAUDE.md's Phase 2 sequencing still governs when they get built.
+- **Building real functionality for Spirituality/Finance/Fitness/Learning** — those domains don't
+  exist yet; CLAUDE.md's Phase 2 sequencing still governs when they get built. Superseded on one
+  narrow point by the 2026-08-20 amendment above: disabled coming-soon *nav tiles* for
+  Spirituality/Finance/Fitness/Learning are now in scope (Phase 9) as a visual/labeling change,
+  not a functionality one — no route, query, or Server Action backs any of the four.
