@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Fast checks only -- no build, no smoke. Those need a running server/local
+# Supabase, which shouldn't be a hard requirement for every commit (would
+# block a trivial doc-only commit if Docker happens to be down). The full
+# suite runs pre-push instead. See docs/audit/CODE_CHECKLIST.md rule 0.
+
+set -e
+
+echo "pre-commit: eslint"
+npm run lint
+
+echo "pre-commit: tsc"
+npx tsc --noEmit
+
+echo "pre-commit: vitest"
+npm run test

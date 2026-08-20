@@ -2015,3 +2015,497 @@ U28, U29, U30, plus Phase 8 primitives and the Phase 9 nav rebuild. No blocking 
   gate and the checklist on a single unreviewed diff. A regression inside it cannot be bisected.
   This is the standing risk in the current state, and it grows with each phase that lands before a
   commit.
+
+---
+
+## D2 resolved — split into 4 commits, pushed
+
+Owner reviewed and pushed. Working tree split into 4 commits along the lines proposed above:
+`d353fe0` (Phase 8 primitives), `0b9a6f8` (Phase 9 nav + U30 fix, bundled since the nav never
+worked without it), `6795833` (U22/U23/U24), `22b8efe` (smoke gate + `CODE_CHECKLIST.md` + doc
+updates). One noted simplification: `login/page.tsx`/`signup/page.tsx` each had both a Phase-8
+`rounded-full` removal and a U24 label fix in the same lines, hand-splitting the hunks wasn't
+worth the risk, so both landed in the U22/23/24 commit with a note in that commit's message.
+`tsc`/`eslint`/`vitest` (105/105) re-verified clean at final `HEAD` before push.
+
+---
+
+## Phase 9.5 (panel wiring) — built, pending verification
+
+**Status:** built, awaiting auditer verification · **2026-08-20**
+
+Owner confirmed the order (panel wiring → Phase 10 → CI) and the goal: the Quests flow needs to be
+genuinely demoable to the client against the reference UX after Phase 10, which makes finishing
+the visual system (not just the nav) worth doing now rather than deferring.
+
+`Card brackets` + `PanelHeader` wired into welcome, rules, login, signup, setup -- the reference's
+single-centered-panel auth-flow screens, matching its `Panel`/`PHead` usage exactly (icons Zap/
+Shield/User/User/Target, labels matching the reference's text). `PanelHeader` gained an `as` prop
+(`"h1"|"h2"|"h3"`, default `"h2"`) so every usage is a real heading element -- these five are each
+a page's sole `<h1>`, previously a plain `<span>` inside the header bar with no semantic heading
+anywhere on the page.
+
+Also matched more closely to the reference while in each file: rules' list now shows numbered rows
+(01, 02...) instead of bullets, with a "Back" ghost button alongside the primary action, both
+present in the reference and previously dropped; disabled-button styling changed from
+`bg-muted text-muted-foreground` to `opacity-40` to match `.sysbtn:disabled` (already established
+via U29 elsewhere, just not yet applied to rules' Link-styled-as-button).
+
+Deliberately not added: the reference's `.scanline` animated light-sweep on welcome/auth panels --
+recorded in ADR-007's new Phase 9.5 entry as a considered cut (ambient decorative loop, not one of
+the two components ADR-007 scoped Motion into), not a silent omission.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke` (verified against a
+freshly restarted local Supabase -- the auditer's dev servers were shut down per the prior
+housekeeping exchange; restarted with a single `supabase start`, per their own warning about
+concurrent starts deadlocking). Spot-checked /welcome, /rules, /login, /signup return 200 (curl,
+not a substitute for the auditer's browser pass -- flagging that a real visual check is still
+needed, not claiming one here).
+
+---
+
+## Phase 9.5 (panel wiring) — VERIFIED, with one finding
+
+**Re-checked:** 2026-08-20 · 5 screens measured against the reference, full functional walk
+
+### Panel / PanelHeader match — PASS
+
+| Property | Reference `.phead` | Ours | |
+|---|---|---|---|
+| font-size | 12px | 12px | ✅ |
+| letter-spacing | 2px | 2px | ✅ |
+| text-transform | uppercase | uppercase | ✅ |
+| padding | 9px / 14px | 10px / 14px | ✅ (1px, `py-2.5`) |
+| border-bottom | 1px | 1px | ✅ |
+| icon present | yes | yes | ✅ |
+| pulse dot | 6px + glow | 6px + glow | ✅ |
+| bracket corners | 4 (`.panel>.c`) | 4 | ✅ |
+
+Applied consistently across `/welcome`, `/rules`, `/login`, `/signup`, `/setup`. Labels match the
+reference's own text (⟨ SYSTEM ⟩ NOTIFICATION, RULES & WARNING, PLAYER LOGIN, REGISTER PLAYER,
+FIRST-TIME SETUP).
+
+**Numbered rules rows** render 01–06 as in the reference, and the previously-dropped **Back**
+button is restored and works (verified: `/rules` → Back → `/welcome`). Disabled-state opacity is
+0.4, matching U29's established value.
+
+### Functional — PASS, zero regression from wrapping content in new containers
+
+    welcome → rules → (Back → welcome) → rules → signup → setup → dashboard
+    rules gate:  pre-check  aria-disabled=true,  opacity 0.4
+                 post-check aria-disabled=false, opacity 1
+    quest create → complete: streak 0→1, score 1→22
+    mobile 390px: no horizontal overflow on /welcome, /rules, /login
+    console errors: 0
+
+The `/rules` checkbox gate is ours, not the reference's, and behaves correctly — the disabled CTA
+on load is intended, not a defect.
+
+---
+
+## U31 — `/welcome`'s `h1` is panel chrome, not the page title
+
+**Severity:** Medium (a11y / semantics) · **Status:** OPEN · **Raised:** 2026-08-20
+
+Making `PanelHeader` a real heading is the right instinct — the reference uses no headings at all
+(`document.querySelectorAll("h1,h2,h3")` → empty), so this is a deliberate improvement on it. On
+four of the five screens it lands correctly, because the panel label *is* the page's subject:
+PLAYER LOGIN, REGISTER PLAYER, RULES & WARNING, FIRST-TIME SETUP.
+
+`/welcome` is the exception. Measured:
+
+    all headings:  ['H1:"⟨ SYSTEM ⟩ NOTIFICATION"']
+    AX tree:       [{ name: "⟨ SYSTEM ⟩ NOTIFICATION", level: 1 }]
+    "Individual Development System" → rendered in a <P>, not a heading
+
+So the app's entry page has exactly one heading, and it names the **panel chrome** rather than the
+page. A screen-reader user navigating by heading hears "SYSTEM NOTIFICATION"; the actual title is
+unreachable by heading navigation. The visual hierarchy is right — the title is the largest, most
+prominent text on screen — but the semantic hierarchy inverts it.
+
+Fix is cheap given the `as` prop already exists: on `/welcome`, promote "Individual Development
+System" to `h1` and render the panel header as `as="h2"` (or as a non-heading, since it is
+decorative there). The other four screens need no change.
+
+### Minor, no action required
+
+- `PanelHeader` text uses `--primary`; the reference's `.phead` uses `--sys-b`, a *lighter* cyan
+  reserved for panel-header text (measured `rgb(143,233,255)` vs our `lab(77.08 -28.13 -35.39)`).
+  A tonal difference only, previously noted during Phase 8. Worth a token if the panel header
+  colour is ever revisited.
+- The numbered rules rows are `div`s, not an `<ol>`. This matches the reference exactly, so it is
+  correct under the standing rule; an ordered list would be marginally better semantics if the
+  numbering is meaningful rather than decorative. Not worth changing on its own.
+- The `.scanline` sweep is absent, recorded by the implementing session as a considered cut in
+  ADR-007 rather than an oversight. Agreed — it is outside the two Motion-scoped components.
+
+**D2 resolved.** The working tree was committed and pushed as four separable commits
+(`d353fe0` primitives, `0b9a6f8` nav, `6795833` bugfixes, `22b8efe` tooling), which is exactly the
+split recommended. A regression in this workstream is now bisectable.
+
+---
+
+## U31 — fixed
+
+**Status:** fix applied, self-verified · **2026-08-20**
+
+`/welcome`'s "Individual Development System" is now the real `<h1>`; `PanelHeader` there dropped
+`as="h1"` back to its default `as="h2"` (the panel label, "⟨ System ⟩ Notification", is chrome on
+this one screen, not the page's subject -- the other four screens are unchanged, their panel
+label genuinely is the subject). Confirmed via curl against a live build: the rendered `<h1>` tag
+now wraps "Individual Development System", not the panel label.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke`. Phase 9.5 should be
+clear pending this one re-check.
+
+---
+
+## U31 — VERIFIED FIXED. Phase 9.5 CLEAR.
+
+**Re-checked:** 2026-08-20 · AX tree, all five panel screens
+
+    /welcome   AX: h2:"⟨ SYSTEM ⟩ NOTIFICATION" | h1:"Individual Development System"
+    /rules     AX: h1:"RULES & WARNING"
+    /login     AX: h1:"PLAYER LOGIN"
+    /signup    AX: h1:"REGISTER PLAYER"
+    /setup     AX: h1:"FIRST-TIME SETUP"
+
+`/welcome`'s `h1` is now the page's actual subject, with the panel label demoted to `h2` as chrome.
+The other four are unchanged and still correct — their panel label genuinely is the page subject.
+Nothing else shifted: `PanelHeader` still measures 12px / 2px tracking with 4 bracket corners on
+every screen, and zero console errors.
+
+Note, no action: on `/welcome` the chrome `h2` precedes the `h1` in document order. This is not a
+violation — heading-order rules flag levels *skipping downward* (h1→h3), not a decrease — and the
+`h1` is present and correct. If it is ever revisited, rendering that one panel header as a
+non-heading would be marginally cleaner, since it is purely decorative on that screen.
+
+**Phase 9.5 is CLEAR.** Panel frame and header bar wired across the onboarding and auth screens,
+matching the reference; numbered rules rows and the Back button restored; full functional walk
+clean; no regression from wrapping existing content in new containers.
+
+---
+
+## Phase 10 (Quests feature build) — built, pending verification
+
+**Status:** built, `smoke` run immediately after the shell-touching commit per the auditer's ask ·
+**2026-08-20**
+
+Owner settled the milestone-scoring question before this started (recorded in full in CLAUDE.md's
+2026-08-20 addendum to "What's explicitly NOT decided yet"): milestones do **not** feed
+`rankProgress`/`streak`/`personalDevelopmentScore` in this phase — that mapping was never written
+into an ADR, so it isn't implemented. Milestones ship as an informational checklist only. The
+"should a milestone-based goal ever affect rank" question is deliberately parked, to revisit once
+a real PDS milestone-scoring addendum is written.
+
+**`/quests`** — was a dead redirect to `/dashboard` since Slice 4 (see the old `quests/page.tsx`
+comment); now the reference's real Quests view: tabs (Active/Completed/Upcoming), a quest list, a
+detail pane, and a category-wise progress panel, wrapped in `NavShell` like `/dashboard` and
+`/quests/new`. `NavShell`'s "Quests" nav item now points here instead of `/quests/new` (creation is
+still reachable via a "New Quest" action inside the view).
+
+**Tab bucketing deliberately avoids inventing a per-goal percentage** — that concept doesn't exist
+in this codebase (milestones don't feed the score per the decision above, and there's no per-goal
+streak function; ADR-001 avoids per-domain/per-goal progress functions on purpose, and the
+reference's own `pctOf` is exactly the kind of hardcoded per-domain math CLAUDE.md flags as
+not-a-logic-reference). Bucketing uses only fields with a real existing meaning: `startDate` for
+Upcoming, "every milestone complete" for Completed. A goal with no milestones can never land in
+Completed — correct for an open-ended daily habit with no finish line, not a gap.
+
+**New Server Actions** (`src/app/quests/actions.ts`): `createMilestone` (append-only `order`, via a
+count query — no reordering UI exists yet) and `toggleMilestone`, both following `createQuest`/
+`upsertGoalEntry`'s existing conventions exactly (auth check, Zod validation via the already-tested
+`createMilestoneSchema`, RLS as the real ownership boundary rather than an app-layer check,
+`toUserError` for client-facing messages). No unit tests added for the actions themselves, matching
+the precedent `createQuest`/`upsertGoalEntry` already set (Supabase-touching Server Actions are
+integration-tested, not unit-mocked, in this codebase) — schema-level validation was already
+covered by the existing `milestoneSchema`/`createMilestoneSchema` tests in `goal.test.ts`, part of
+the 105/105 already passing before this phase.
+
+**Category-wise progress** only averages milestone completion across goals *that have milestones*
+in a category — a category with goals but no milestones shows "No milestones yet" rather than
+silently averaging in a 0%, which isn't what "no milestones" means.
+
+**Lint caught 3 raw `<button>`s** (tab switcher, quest-card selector, milestone-row toggle) —
+fixed via the same "Button as a flexible interactive primitive, restyled via className" pattern
+`form-checkbox.tsx` already established, not a new pattern.
+
+**`npm run smoke` run immediately after the commit that made `/quests` render `NavShell`**, per
+the auditer's explicit ask (both prior Criticals were shell/layout changes invisible until this
+exact check) — picked up the new route automatically via its filesystem-derived route list, no
+manual list update needed, and passed clean. Functional spot-check via a real signed-up user
+confirmed the empty state renders (not just a 200).
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105, no `src/lib/**` diff — no engine change,
+per the milestone-scoring decision)/`build`/`smoke`.
+
+Not yet verified: visual match against the reference's `QuestsView` (panel/tab/card/detail styling),
+milestone add/toggle through a real browser session, mobile layout at the `lg:grid-cols-[1.2fr_1fr]`
+breakpoint, and a full functional walk (create quest with milestones → toggle some → watch it move
+buckets → category progress updates).
+
+---
+
+## Phase 10 (Quests) — VERIFIED, two findings
+
+**Re-checked:** 2026-08-20 · full functional walk, rank-isolation test with control
+
+### The important one: milestones do not touch the rank engine — CONFIRMED
+
+Tested end-to-end through the UI with a real session, not by reading code:
+
+    score baseline                          0-day streak · Overall score 1
+    after adding 3 milestones               0-day streak · Overall score 1   unchanged
+    after toggling all 3 complete (3/3)     0-day streak · Overall score 1   unchanged
+
+**Control test** (a separate account, proving the engine is not simply frozen — an "unchanged"
+result means nothing if nothing can change it):
+
+    completing a DAILY GOAL   before: 0-day streak · Overall score 1
+                              after:  1-day streak · Overall score 22   CHANGED
+
+So the isolation is real and specific: daily goal completion moves rank and score, milestone
+completion does not. `git diff HEAD -- src/lib/` is empty, confirming no rank-engine change.
+This is the claim that mattered most and it holds.
+
+**Tabs / bucketing works.** After completing all milestones the quest moved buckets correctly:
+`ACTIVE (1) COMPLETED (0)` → `ACTIVE (0) COMPLETED (1)`, and the summary line followed.
+Panel treatment (bracket frames, header bars with icon + dot, letterspaced labels) matches the
+rest of the app. Zero console errors throughout.
+
+**Not a defect, checked and cleared:** the milestone input has no `<label>`, but it carries
+`aria-label="New milestone title"` and the AX tree resolves the name correctly — so the U24 class
+of defect is not present here.
+
+---
+
+## U32 — `/quests` overflows horizontally at every mobile width
+
+**Severity:** Medium · **Status:** OPEN · **Raised:** 2026-08-20 (measured)
+
+`/quests` is the **only** route that overflows, and it worsens as the viewport narrows:
+
+    390px:  /dashboard ok   /quests OVERFLOW +39   /quests/new ok   /setup ok
+    360px:  /dashboard ok   /quests OVERFLOW +69   /quests/new ok   /setup ok
+    320px:  /dashboard ok   /quests OVERFLOW +109  /quests/new ok   /setup ok
+
+The overflow is a constant: content is pinned at **429px** regardless of viewport, so `<main>`
+(`flex flex-1 flex-col pb-16 md:pb-0`) never shrinks below its content's intrinsic width. Classic
+flex behaviour — a flex item defaults to `min-width: auto` and will not shrink past its content.
+Most likely the quest-list / detail-pane two-column layout not collapsing at mobile; the usual fix
+is `min-w-0` on the flex child and a single-column stack below `md`.
+
+Every previous phase was checked for this and passed, so it is new to Phase 10. Worth prioritising
+given the owner intends to share a dev link with the client for Quests-flow testing — this is the
+screen that link is for, and phones are the likely test device.
+
+---
+
+## U33 — "Category-wise progress" shows a milestone-derived percentage with no visible label
+
+**Severity:** Low-Medium (semantics) · **Status:** OPEN · **Raised:** 2026-08-20
+
+After completing 3/3 milestones on a quest whose daily goal was never completed, the page shows:
+
+    CATEGORY-WISE PROGRESS
+    Business · 1                    100%
+    (rank card, same screen: 2% → D, 0-day streak, Overall score 1)
+
+Two different progress figures for the same quest on the same screen, with nothing visible
+explaining that they measure different things.
+
+The implementation is careful and deliberate — `pct` is `null` unless a category has at least one
+goal with milestones (with a comment explaining why), and the Progress element's accessible label
+reads `"Business milestone completion, 100%"`, which is exactly right. The gap is that the
+**visible** text says only "100%" under a header reading "CATEGORY-WISE PROGRESS". A sighted user
+gets the ambiguous version; a screen-reader user gets the precise one.
+
+This is the same conceptual hazard that made the milestone-scoring question worth an ADR in the
+first place: the reference derives a quest's percentage from milestones (3/6 = 50%), which is not
+ADR-002's model. The owner's decision to keep milestones informational is being honoured in the
+engine — the display just doesn't say so. Cheapest fix is wording: "milestone progress" in the
+panel header or the row, so the visible label matches the accessible one.
+
+### Minor, noted
+
+- Milestone rows are `<Button>` with an `aria-hidden` visual box and `sr-only` ", complete" /
+  ", not complete" text, rather than `role="checkbox"` + `aria-checked`. It is operable and
+  announced, but it is inconsistent with `FormCheckbox` used elsewhere in the app, and assistive
+  tech will not present it as a checkable item or announce state changes as such. Worth aligning
+  when the pattern is next touched.
+- `isCompleted` keys only on milestones, so a quest with a *past target date* and no milestones
+  stays "Active" indefinitely. The implementing session's reasoning — an open-ended daily habit has
+  no finish line — is right for habits, but a dated quest is the case where a user might expect
+  otherwise. Not a defect; flagging so the owner can confirm the intended behaviour.
+
+---
+
+## U32 / U33 — fixed
+
+**Status:** fix applied, awaiting auditer re-check · **2026-08-20**
+
+**U32.** `min-w-0` added along the whole containment chain that was pinning `/quests` at 429px:
+`NavShell`'s `<main>` (a flex child, defaults to `min-width: auto`, same trap as U32's diagnosis),
+the two-column grid itself and both its children (grid items default to `min-width: auto` too --
+the other half of the same trap), and the milestone-add `Input` (`flex-1 min-w-0` instead of a bare
+width). Every one of these was a candidate floor; fixed the whole chain rather than guessing which
+one link actually mattered, since a real browser viewport check is what confirms it, not code
+reading.
+
+**U33.** Category panel header changed from "Category-Wise Progress" to "Category Milestone
+Progress", and the visible `72%` now reads `72% milestones` inline -- matching the accessible label
+("Business milestone completion, 72%") that was already correct. No longer two unlabeled percentage
+figures on one screen with nothing visible distinguishing them from the rank card's own progress.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke`. The mobile-width fix
+(U32) needs your real-viewport re-check -- I can't confirm computed layout at 320/360/390px myself,
+only that the classes are present in the markup.
+
+Two items acknowledged, not acted on this pass: the milestone-row `<Button>`-not-`role="checkbox"`
+inconsistency (minor, flagged for whenever that pattern is next touched, matches the note) and the
+past-target-date-with-no-milestones edge case (not a defect, owner confirmation needed, not
+blocking).
+
+---
+
+## U32 / U33 — VERIFIED FIXED. Phase 10 CLEAR.
+
+**Re-checked:** 2026-08-20
+
+**U32 fixed.** No horizontal overflow anywhere, at any tested width:
+
+    390px:  dashboard ok  quests ok  quests/new ok  setup ok  welcome ok  login ok
+    360px:  dashboard ok  quests ok  quests/new ok  setup ok  welcome ok  login ok
+    320px:  dashboard ok  quests ok  quests/new ok  setup ok  welcome ok  login ok
+
+The `min-w-0` chain did not collapse anything: mobile `/quests` stacks to a single column with the
+tab row, quest card, category panel, detail pane and milestone form all legible. Swept for
+squeezed content (elements under 40px wide carrying more than 12 characters) and the only matches
+are the intended 1×1 `sr-only` spans.
+
+Fixing the whole chain rather than bisecting to the single culprit was the right call here — the
+`min-width: auto` trap applies to flex *and* grid items alike, so several links were genuinely
+candidates, and none of the additions carry a downside.
+
+**The tab row is correct, not clipped.** `UPCOMING (0)` is visually cut at the container edge, but
+the row is `overflow-x: auto` and genuinely scrollable (`scrollWidth` 381 vs `clientWidth` 342 at
+390px), the tab is reachable and clickable, and the *page* does not overflow. That is the intended
+pattern — wide content scrolling inside its own container. Minor, no action: there is no visual
+affordance (edge fade or shadow) hinting the strip scrolls, so a user may not discover the third
+tab; worth considering if the client's testers report it.
+
+**U33 fixed.** Visible text now reads `CATEGORY MILESTONE PROGRESS … Business · 1 — 33% milestones`,
+matching the accessible labels, which were already correct and remain so:
+
+    progressbar: "Business milestone completion, 33%"   aria-valuenow 33
+    progressbar: "1 of 3 milestones complete"           aria-valuenow 33
+
+Visible and accessible descriptions now agree, and neither can be mistaken for overall progress.
+
+**Phase 10 is CLEAR.** Quests tabs, detail pane, milestones, and category progress all verified;
+milestones confirmed isolated from the rank engine with a control test; no functional regression;
+zero console errors.
+
+### Carried forward, agreed as not-this-pass
+
+- Milestone rows use `<Button>` with `sr-only` state text rather than `role="checkbox"` +
+  `aria-checked`. Operable and announced, inconsistent with `FormCheckbox`. Align when next touched.
+- `isCompleted` keys only on milestones, so a quest with a past target date and no milestones stays
+  Active indefinitely. Needs the owner's call, not a defect.
+
+---
+
+## Three owner-requested items — built
+
+**Status:** built, self-verified via smoke, awaiting auditer functional/AX pass · **2026-08-20**
+
+**1. Pre-commit/pre-push gate.** New Husky setup (`.husky/pre-commit`, `.husky/pre-push`,
+`prepare: husky` in `package.json` so it auto-installs for anyone who clones and runs `npm
+install` -- a raw `.git/hooks/` script wouldn't have, since `.git` isn't tracked). `pre-commit`:
+`eslint` + `tsc --noEmit` + `vitest` (fast, no external services, blocks the commit outright on
+failure -- not "revert after," the commit is never created). `pre-push`: adds `next build`, then
+runs `npm run smoke` if a server is reachable at `SMOKE_BASE_URL` (default `127.0.0.1:3000`),
+otherwise **warns loudly and does not block** -- hard-requiring local Supabase + a running server
+on every push would fail pushes for reasons unrelated to the code. Manually verified both scripts
+directly (not just trusting them to fire correctly on a real commit/push): pre-commit passes clean
+on the current tree; pre-push runs build+smoke against a real server and passes; killed the server
+and re-ran pre-push to confirm the "unreachable" path warns without blocking (exit 0). This is the
+local stopgap CLAUDE.md/CODE_CHECKLIST call for -- real CI (D1/D5) is the unconditional version and
+is still separate, unstarted work.
+
+**2. "Missed" tag.** Owner resolved the auditer's exact flagged edge case: a quest is "Missed" only
+when it **has milestones**, has a **past target date**, and isn't all-complete
+(`quests-view.tsx`'s new `isMissed`). A quest with no milestones never gets tagged Missed regardless
+of target date -- it has no completion signal to judge against, so it stays in its normal bucket
+("the user might pick it up sometime in future," the owner's own words). Shown as a destructive
+`Badge` on both the quest card and the detail pane's Target field.
+
+**3. Milestone checkbox a11y.** Replaced the `<Button>`+`aria-hidden`+`sr-only` pattern with the
+real `Checkbox` primitive (Radix, genuine `role="checkbox"`/`aria-checked`) wrapped in a `<label>`
+-- the exact pattern `TodayChecklist` already uses for imperative (non-form) toggles, not a new
+one. Closes the inconsistency flagged two entries up.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke` (against a real server,
+three routes). Not yet verified: the Missed badge actually appearing for a real past-target-date
+milestone quest, and the checkbox's role/aria-checked/announced-toggle behavior via a real AX tree
+-- both need the auditer's browser pass, not a self-report.
+
+---
+
+## Three owner-requested items — VERIFIED
+
+**Re-checked:** 2026-08-20
+
+### 1. "Missed" badge — correct on all three cases
+
+Built three quests and checked each against the specified rule
+(`isMissed = has milestones && past target date && not all complete`), today being 2026-08-20:
+
+| Quest | Target | Milestones | Rendered |
+|---|---|---|---|
+| A — overdue, incomplete milestones | 2026-08-10 (past) | 0/2 | **`Missed`** ✅ |
+| B — overdue, no milestones | 2026-08-10 (past) | none | no badge ✅ |
+| C — future target, incomplete milestones | 2026-12-31 | 0/1 | `Due today`, no badge ✅ |
+
+B is the case the owner specifically ruled on — a dated quest with no milestones is never tagged
+Missed, since "the user might pick it up sometime in future". Confirmed: B carries no badge despite
+a target date ten days past. The badge appears on both the card and the detail pane as described.
+
+Note, not a defect: a Missed quest stays in the **Active** bucket (`3 active · 0 completed`). That
+follows from `isCompleted` keying only on milestones, and is coherent — Missed is informational,
+and the quest is still actionable. Flagging only so it is a known consequence rather than a
+surprise.
+
+### 2. Milestone checkbox — real checkbox semantics confirmed
+
+Full CDP accessibility tree, before and after toggling:
+
+    before:  [{role:"checkbox", name:"Step one", checked:"false", focusable:true},
+              {role:"checkbox", name:"Step two", checked:"false", focusable:true}]
+    after:   [{role:"checkbox", name:"Step one", checked:"true",  focusable:true},
+              {role:"checkbox", name:"Step two", checked:"false", focusable:true}]
+
+Playwright's independent role engine finds both. Each is named by its milestone title, focusable,
+and exposes `checked` state that updates on toggle — so assistive tech now presents these as
+checkable items and announces state changes, which the previous `<Button>` + `sr-only` pattern
+could not. Keyboard operable: focus + `Space` flips `aria-checked` false → true. The U33-adjacent
+inconsistency with `FormCheckbox` is closed.
+
+### 3. Husky hooks — wired correctly, and honest about their limits
+
+`core.hooksPath` is `.husky/_`, shims present for both hooks, both source files executable,
+`husky@^9.1.7` installed with a `prepare` script. Branch logic verified by evaluating the same
+condition the hook uses:
+
+    server down (127.0.0.1:3000)  → unreachable → WARN, does not block   ✅
+    server up   (localhost:3100)  → reachable   → would run smoke        ✅
+
+The split is well-judged: fast checks pre-commit (a doc-only commit should not require Docker),
+full suite plus conditional smoke pre-push. The inline comments state plainly that the
+warn-don't-block smoke path is a stopgap and that CI is the real gate, which is accurate.
+
+**Standing caveat, not a defect:** `git commit --no-verify` bypasses hooks entirely, and hooks only
+protect this machine. This does not reduce **D1 / D5** — a local hook is a convenience, not a gate.
+The implementing session said as much to the owner directly, which is the right framing.
+
+**Zero console errors across all of the above.**

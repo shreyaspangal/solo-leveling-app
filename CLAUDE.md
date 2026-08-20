@@ -126,6 +126,17 @@ accurate as of the planning conversation, not guaranteed current at build time.)
 - Historical query design for the global date filter — flagged for its own ADR at the start of
   Phase 3, not before, since it should be designed once against all five domains, not guessed
   early against three.
+- **Milestone completion's effect on Personal Development Score** (2026-08-20, ADR-007 Phase 10
+  planning). Confirmed per ADR-001/ADR-002 as written: milestones do **not** feed `rankProgress` or
+  `streak` — those are computed purely from `GoalEntry` rows for `daily_tracking: true` goals, and
+  milestone-based goals are ADR-001's "overall %, no per-day checklist" case, which the engine
+  currently excludes entirely. A milestone contribution to `personalDevelopmentScore` was proposed
+  (`milestones × 5` or similar) but never written into an ADR, so it isn't implemented — Phase 10
+  ships milestones as an informational checklist only (Server Action + query + UI), no engine diff.
+  A further open question, deliberately parked rather than guessed at: should a milestone-based
+  goal be able to affect **rank** at all, ever, or is rank specifically a daily-consistency number
+  that long-horizon milestone goals shouldn't move? Revisit both together once the PDS
+  milestone-scoring addendum is actually written, not before.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

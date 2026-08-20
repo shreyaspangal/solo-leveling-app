@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+# Full suite before code leaves this machine. `build` always runs (no
+# external services needed, catches anything the fast pre-commit checks
+# can't). `smoke` needs a running Next server AND local Supabase -- neither
+# is started here (spinning both up on every push would be slow and would
+# fail pushes for reasons unrelated to the code being pushed, e.g. Docker
+# not running). If a server's already reachable at SMOKE_BASE_URL (or the
+# default dev port), smoke runs and blocks the push on failure, same as
+# every other check here. If not, this warns loudly instead of blocking --
+# the real, unconditional version of this gate is CI (D1/D5, not yet
+# built), not a local hook with no server to test against.
+
+set -e
+
+echo "pre-push: eslint"
+npm run lint
+
+echo "pre-push: tsc"
+npx tsc --noEmit
+
+echo "pre-push: vitest"
+npm run test
+
+echo "pre-push: next build"
+npm run build
+
+BASE_URL="${SMOKE_BASE_URL:-http://127.0.0.1:3000}"
+if curl -sf -o /dev/null --max-time 2 "$BASE_URL/login"; then
+  echo "pre-push: smoke (server reachable at $BASE_URL)"
+  SMOKE_BASE_URL="$BASE_URL" npm run smoke
+else
+  echo ""
+  echo "pre-push: WARNING -- no server reachable at $BASE_URL, smoke skipped."
+  echo "  This is the check that caught U16 and U30 (both were 500s for every"
+  echo "  signed-in user, invisible to every check above). Run it manually"
+  echo "  before trusting this push:"
+  echo "    npm run start &  # or next dev"
+  echo "    npm run smoke"
+  echo ""
+fi

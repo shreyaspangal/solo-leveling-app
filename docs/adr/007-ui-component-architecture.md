@@ -163,6 +163,18 @@ in the first place:
 - **Phase 9 — nav rebuild.** Left rail + bottom bar, 6 items (Home/Quests active; Spirituality/
   Finance/Fitness/Learning coming-soon disabled), sign-out relocated, applied across all existing
   pages. Supersedes U20's row.
+- **Phase 9.5 — panel wiring** *(added 2026-08-20, after the fact: Phase 8 built `PanelHeader`
+  and never used it anywhere; the auditer's Phase 9 review flagged the remaining visual distance
+  from the reference on `/login`/`/dashboard` as the panel frame/header, not the controls).*
+  Wraps welcome, rules, login, signup, and setup — the reference's single-centered-panel auth-flow
+  screens — in `Card brackets` + `PanelHeader`, matching the reference's `Panel`/`PHead` usage on
+  those exact screens (icons: Zap/Shield/User/User/Target). `PanelHeader` gained an `as` prop
+  (`"h1" | "h2" | "h3"`, default `"h2"`) so it renders a real heading element instead of a bare
+  styled `<span>` — every one of these usages is the page's single primary heading, so each passes
+  `as="h1"`. Deliberately **not** added: the reference's `.scanline` animated light-sweep on the
+  welcome/auth panels — an ambient decorative loop, not one of the two components ADR-007 scoped
+  Motion into, and the same call the ADR's own "animate every entrance the reference animates"
+  rejected alternative already made.
 - **Phase 10 — Quests feature build.** Tabs, detail pane, category progress (existing data), and
   milestone checklist (new Server Action + query against the existing table/schema).
 - **Phase 11 — bug fixes.** U22 (setup copy), U23 (`domains.ts` availability), U24 (auth input
