@@ -2509,3 +2509,79 @@ protect this machine. This does not reduce **D1 / D5** — a local hook is a con
 The implementing session said as much to the owner directly, which is the right framing.
 
 **Zero console errors across all of the above.**
+
+---
+
+## Dashboard panel wiring — built, pending verification
+
+**Status:** built, awaiting auditer verification · **2026-08-20**
+
+Owner request, after the previous four phases: `/dashboard` was the one screen left with the old
+unpaneled look (only its rank card had `Card brackets`) -- and it's the first thing a client sees
+after logging in, before reaching the now-polished Quests flow. `Card brackets` + `PanelHeader`
+wired into the rank section ("Hunter Status", icon `Shield`) and the daily checklist ("Today's
+Tasks", icon `ListChecks`).
+
+**Deliberately not a rebuild.** The reference's own "Hunter Status" panel carries a much larger
+stat set -- best streak, 30-day miss count, days-consistent, a full rank-path visualization. None
+of that is added here: those numbers either need multi-domain data this app doesn't have yet, or
+new calculations the tested engine doesn't expose (there's no per-metric function for "best streak
+ever" or "misses in the last 30 days" today). This is the *existing* content (RankBadge, progress
+bar, streak/score text, the daily checklist) moved into the panel system -- not new dashboard
+content invented to fill a bigger panel. The "tracked as overall progress" secondary list stays
+plain, unpaneled -- matches the reference's own restraint of reserving panels for primary content.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke`. Functional spot-check via
+a real signed-up user confirmed both panel headers render, not just a 200. Not yet verified:
+visual match against the reference's panel treatment, and a full functional walk through
+`/dashboard` itself (today's checklist toggle, the "finish setup" branch for a pre-setup user).
+
+---
+
+## Dashboard panel wiring — VERIFIED. No findings.
+
+**Re-checked:** 2026-08-20
+
+### Panel treatment matches the reference
+
+    PanelHeader "HUNTER STATUS"   fs=12px ls=2px pad=10px/14px bb=1px icon=true dot=6px
+    PanelHeader "TODAY'S TASKS"   fs=12px ls=2px pad=10px/14px bb=1px icon=true dot=6px
+    bracket corners: 12 (3 panels x 4)
+
+Identical to the values measured on the five onboarding/auth screens, so the whole app now shares
+one panel treatment. `/dashboard` was the last screen on the old unpaneled look.
+
+### Heading structure — correct, U31's lesson applied
+
+    H1:"Dashboard" | H2:"HUNTER STATUS" | H2:"TODAY'S TASKS"
+
+The page's own title stays the `h1`; both panel labels are `h2` chrome beneath it. This is exactly
+the structure U31 asked for on `/welcome`, applied here without needing to be told.
+
+### Functional — PASS
+
+- **Checklist toggle works:** `0-day streak · Overall score 1` → `1-day streak · Overall score 22`.
+- **Checklist checkbox is properly named:** AX name `"Read 20 books Personal"`, `role=checkbox`,
+  `checked` tracks state. The element has no `aria-label` and no own text — the name comes from its
+  wrapping `<label>`, which is the correct mechanism.
+- **Pre-setup branch renders correctly inside the new panels:**
+  `HUNTER STATUS — "Finish setup to start rank tracking."` and
+  `TODAY'S TASKS — "Nothing scheduled today. Create a quest to get started."`
+  Headings are correct in this state too.
+- **No horizontal overflow** at 390 / 360 / 320px.
+- **Zero console errors** across every state tested.
+
+### The scope call was right
+
+Not adding the reference's fuller stat set (best streak, 30-day miss count, rank-path
+visualisation) was correct. None of that data or calculation exists in the engine, and inventing it
+would have been new product content disguised as a styling pass — precisely the "reference is a
+UI/UX target, not a logic reference" line CLAUDE.md draws.
+
+### Observation, not a finding
+
+With only two panels, `/dashboard` occupies a narrow column and leaves most of a 1400px viewport
+empty — the reference's Command view fills that space with the five panels we deliberately do not
+have data for. This is a consequence of the correct scope decision, not a defect, and the fix is
+*not* to invent data. If the sparseness matters for the client link, the lever is column width or
+panel arrangement, which is a design call for the owner rather than an audit finding.

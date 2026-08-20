@@ -1,7 +1,8 @@
+import { ListChecks, Shield } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, PanelHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { NavShell } from "@/components/ui/nav-shell";
 import { RankBadge } from "@/components/ui/rank-badge";
@@ -120,60 +121,73 @@ export default async function DashboardPage() {
           <p className="mt-2 text-sm text-muted-foreground">{today}</p>
 
           {/* Rank isn't Quests-specific (ADR-001), unlike the checklist below --
-              per the PRD, this is the most prominent section of the dashboard. */}
+              per the PRD, this is the most prominent section of the dashboard.
+              Panel-wired (ADR-007) to match the reference's "Hunter Status"
+              panel -- deliberately not its full stat set (best streak,
+              missed-30d, rank-path visualization): those need either
+              multi-domain data this app doesn't have yet, or new calculations
+              the tested engine doesn't expose. This is the existing content
+              in a Panel, not new content invented to fill one. */}
           {progress === null ? (
-            <Card className="mt-6 p-4 text-sm text-muted-foreground">
-              <Link href="/setup" className="font-medium text-foreground underline">
-                Finish setup
-              </Link>{" "}
-              to start rank tracking.
-            </Card>
-          ) : (
-            <Card brackets className="mt-6 p-4">
-              <div className="flex items-center gap-4">
-                {rankData.window && (
-                  <RankBadge rankTarget={rankData.window.rankTarget} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-muted-foreground">Your Progress</p>
-                  <p className="mt-1 font-medium">
-                    {progress.pct}% toward {rankData.window?.rankTarget} rank
-                  </p>
-                </div>
+            <Card brackets>
+              <PanelHeader icon={Shield}>Hunter Status</PanelHeader>
+              <div className="p-4 text-sm text-muted-foreground">
+                <Link href="/setup" className="font-medium text-foreground underline">
+                  Finish setup
+                </Link>{" "}
+                to start rank tracking.
               </div>
-              <Progress
-                value={progress.pct}
-                label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
-                className="mt-3"
-              />
-              <p className="mt-2 text-sm text-muted-foreground">
-                {currentStreak}-day streak · Overall score {score}
-              </p>
+            </Card>
+          ) : (
+            <Card brackets>
+              <PanelHeader icon={Shield}>Hunter Status</PanelHeader>
+              <div className="p-4">
+                <div className="flex items-center gap-4">
+                  {rankData.window && (
+                    <RankBadge rankTarget={rankData.window.rankTarget} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-muted-foreground">Your Progress</p>
+                    <p className="mt-1 font-medium">
+                      {progress.pct}% toward {rankData.window?.rankTarget} rank
+                    </p>
+                  </div>
+                </div>
+                <Progress
+                  value={progress.pct}
+                  label={`${progress.pct}% toward ${rankData.window?.rankTarget} rank`}
+                  className="mt-3"
+                />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {currentStreak}-day streak · Overall score {score}
+                </p>
+              </div>
             </Card>
           )}
 
-          <h2 className="mt-8 text-sm font-medium text-muted-foreground">Today&apos;s Tasks</h2>
-
-          {scheduledToday.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">
-              Nothing scheduled today.{" "}
-              <Link href="/quests/new" className="font-medium text-foreground underline">
-                Create a quest
-              </Link>{" "}
-              to get started.
-            </p>
-          ) : (
-            <div className="mt-3">
-              <TodayChecklist
-                goals={scheduledToday.map((g) => ({
-                  id: g.id,
-                  title: g.title,
-                  category: g.category,
-                  completed: completedGoalIds.has(g.id),
-                }))}
-              />
+          <Card brackets className="mt-6">
+            <PanelHeader icon={ListChecks}>Today&apos;s Tasks</PanelHeader>
+            <div className="p-4">
+              {scheduledToday.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nothing scheduled today.{" "}
+                  <Link href="/quests/new" className="font-medium text-foreground underline">
+                    Create a quest
+                  </Link>{" "}
+                  to get started.
+                </p>
+              ) : (
+                <TodayChecklist
+                  goals={scheduledToday.map((g) => ({
+                    id: g.id,
+                    title: g.title,
+                    category: g.category,
+                    completed: completedGoalIds.has(g.id),
+                  }))}
+                />
+              )}
             </div>
-          )}
+          </Card>
 
           {overallGoals.length > 0 && (
             <div className="mt-6">

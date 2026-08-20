@@ -39,7 +39,7 @@ export function TodayChecklist({ goals }: { goals: ChecklistGoal[] }) {
   }
 
   return (
-    <ul className="mt-6 space-y-3">
+    <ul className="space-y-3">
       {goals.map((goal) => (
         <li key={goal.id}>
           <Card className="p-4">
