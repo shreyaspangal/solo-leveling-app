@@ -50,6 +50,46 @@ function Card({
   )
 }
 
+// ADR-007 Phase 8: matches the reference's `.phead` -- a bordered header bar
+// (icon + pulse dot + uppercase letterspaced label, optional right-aligned
+// action) distinct from shadcn's plain CardHeader/CardTitle. Opt-in, same as
+// `brackets`: not every Card needs a panel header, only the ones the
+// reference gives one to.
+function PanelHeader({
+  icon: Icon,
+  children,
+  action,
+  className,
+}: {
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      data-slot="panel-header"
+      className={cn(
+        // Audit finding U29: tracking-[2px] matches the reference's `.phead`
+        // exactly (tracking-widest measured 40% short, live).
+        "flex items-center gap-2 border-b border-border px-3.5 py-2.5 font-heading text-xs tracking-[2px] text-primary uppercase",
+        action ? "justify-between" : "justify-start",
+        className
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {Icon && <Icon size={14} className="shrink-0" />}
+        <span
+          aria-hidden
+          className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_8px_var(--primary)]"
+        />
+        <span className="truncate">{children}</span>
+      </span>
+      {action}
+    </div>
+  )
+}
+
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -130,4 +170,5 @@ export {
   CardAction,
   CardDescription,
   CardContent,
+  PanelHeader,
 }

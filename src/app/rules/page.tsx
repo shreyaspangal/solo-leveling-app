@@ -50,7 +50,7 @@ export default function RulesPage() {
           aria-disabled={!acknowledged}
           className={cn(
             buttonVariants({ size: "lg" }),
-            "mt-6 h-12 w-full rounded-full",
+            "mt-6 h-12 w-full",
             !acknowledged && "pointer-events-none bg-muted text-muted-foreground",
           )}
         >

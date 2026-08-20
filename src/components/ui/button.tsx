@@ -5,15 +5,37 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // ADR-007 Phase 8: reference `.sysbtn` is a bordered *transparent*
+        // control with a glow on hover -- the opposite of a solid filled
+        // pill (audit finding U25, "the button language is inverted").
+        // uppercase/tracking-[2px]/text-[13px]/font-heading is common to the
+        // whole sysbtn family (default/outline/secondary here) per the
+        // reference's shared `.sysbtn` base class. `ghost`/`destructive`/
+        // `link` are untouched by this pass -- NOT because their reference
+        // counterparts are unstyled (`.nav-item` is: 13px Chakra Petch,
+        // uppercase, 1px tracking, active-state left-border + gradient --
+        // this comment previously claimed otherwise, corrected per audit
+        // follow-up to U29), but because `ghost` isn't how nav items are
+        // styled today (nav-shell.tsx styles its own `<Link>`s directly, not
+        // via this Button's `ghost` variant) and matching `.nav-item` is
+        // Phase 9's job (nav rebuild), not this one. Audit finding U29:
+        // `tracking-widest` (a relative 0.1em) measured 20-40% short of the
+        // reference's absolute px values, so this uses `tracking-[2px]`
+        // directly instead of a named step.
+        default:
+          "border-primary bg-primary/10 text-foreground text-[13px] uppercase tracking-[2px] font-heading hover:bg-primary/20 hover:shadow-[0_0_24px_oklch(from_var(--primary)_l_c_h_/_35%)] aria-expanded:bg-primary/20",
         outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "border-border bg-transparent text-muted-foreground text-[13px] uppercase tracking-[2px] font-heading hover:border-primary hover:bg-primary/5 hover:text-foreground aria-expanded:border-primary aria-expanded:text-foreground",
+        // Reference's `.sysbtn.mon:hover` overrides only `background` --
+        // the base `.sysbtn:hover`'s cyan glow (not a monarch/purple one)
+        // still applies on hover (U29). Only the background tint uses
+        // --secondary; the glow intentionally matches `default`'s.
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+          "border-secondary bg-secondary/10 text-foreground text-[13px] uppercase tracking-[2px] font-heading hover:bg-secondary/20 hover:shadow-[0_0_24px_oklch(from_var(--primary)_l_c_h_/_35%)] aria-expanded:bg-secondary/20",
         ghost:
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
         destructive:

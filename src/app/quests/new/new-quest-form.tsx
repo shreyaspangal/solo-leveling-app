@@ -148,7 +148,7 @@ export function NewQuestForm() {
 
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-      <Button type="submit" disabled={pending} className="h-11 w-full rounded-full">
+      <Button type="submit" disabled={pending} className="h-11 w-full">
         {pending ? "Creating…" : "Create Quest"}
       </Button>
     </form>

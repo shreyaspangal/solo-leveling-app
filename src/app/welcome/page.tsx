@@ -22,7 +22,7 @@ export default function WelcomePage() {
           <li>• How consistency affects your progression</li>
         </ul>
 
-        <Button asChild size="lg" className="mt-10 h-12 w-full rounded-full">
+        <Button asChild size="lg" className="mt-10 h-12 w-full">
           <Link href="/rules">Get Started</Link>
         </Button>
       </div>

@@ -24,7 +24,7 @@ export function SetupForm() {
       }}
     >
       <Input ref={timezoneRef} type="hidden" name="timezone" />
-      <Button type="submit" size="lg" className="mt-8 h-12 w-full rounded-full">
+      <Button type="submit" size="lg" className="mt-8 h-12 w-full">
         Continue
       </Button>
     </form>

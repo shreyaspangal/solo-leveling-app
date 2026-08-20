@@ -116,7 +116,31 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply relative bg-background text-foreground;
+    /* ADR-007 Phase 8: matches the reference's `.sl-root` two-tone radial
+       wash (`oklch(from ...)` derives the tint from the existing --primary/
+       --secondary tokens rather than hardcoding new colors). `background-
+       attachment: fixed` so the wash doesn't repeat/scroll per-page --
+       every route shares one body, but each page is a fresh mount. */
+    background-image:
+      radial-gradient(900px 500px at 78% -8%, oklch(from var(--secondary) l c h / 16%), transparent 60%),
+      radial-gradient(1100px 700px at 12% 110%, oklch(from var(--primary) l c h / 12%), transparent 55%);
+    background-attachment: fixed;
+  }
+  /* Grid-texture overlay, matching `.sl-root::before`. `pointer-events: none`
+     plus painting before body's real children (a `::before` pseudo-element
+     is always first in paint order) keeps it from intercepting clicks or
+     sitting on top of content -- no z-index juggling needed. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(oklch(from var(--primary) l c h / 3.5%) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(from var(--primary) l c h / 3.5%) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 85%);
   }
   html {
     @apply font-sans;
