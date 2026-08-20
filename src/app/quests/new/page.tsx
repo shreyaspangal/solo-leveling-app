@@ -14,8 +14,7 @@ export default async function NewQuestPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center">
-      <NavShell />
+    <NavShell>
       <div className="flex w-full flex-1 flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-sm">
           <h1 className="text-2xl font-semibold tracking-tight">Create a Quest</h1>
@@ -25,6 +24,6 @@ export default async function NewQuestPage() {
           <NewQuestForm />
         </div>
       </div>
-    </div>
+    </NavShell>
   );
 }
