@@ -1,9 +1,11 @@
 "use client";
 
+import { Shield } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { buttonVariants } from "@/components/ui/button";
+import { Card, PanelHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 // PRD "2. Rules & Warning": user must acknowledge before proceeding to signup.
@@ -22,40 +24,56 @@ export default function RulesPage() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <div className="w-full max-w-lg">
-        <h1 className="text-2xl font-semibold tracking-tight">Rules &amp; Warning</h1>
-        <p className="mt-3 text-muted-foreground">
-          Before you continue, please read and understand the following.
-        </p>
+        <Card brackets>
+          <PanelHeader as="h1" icon={Shield}>
+            Rules &amp; Warning
+          </PanelHeader>
+          <div className="p-6">
+            <p className="text-muted-foreground">
+              Before you continue, please read and understand the following.
+            </p>
 
-        <ul className="mt-6 space-y-3 text-sm text-foreground/90">
-          {rules.map((rule) => (
-            <li key={rule} className="flex gap-2">
-              <span aria-hidden>•</span>
-              <span>{rule}</span>
-            </li>
-          ))}
-        </ul>
+            <ul className="mt-4 space-y-1">
+              {rules.map((rule, i) => (
+                <li
+                  key={rule}
+                  className="flex gap-3 border-b border-border/50 py-2 text-sm last:border-b-0"
+                >
+                  <span className="min-w-[22px] font-heading text-primary">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span>{rule}</span>
+                </li>
+              ))}
+            </ul>
 
-        <label className="mt-8 flex items-start gap-3 text-sm">
-          <Checkbox
-            checked={acknowledged}
-            onCheckedChange={(checked) => setAcknowledged(checked === true)}
-            className="mt-0.5"
-          />
-          <span>I have read and understand these rules.</span>
-        </label>
+            <label className="mt-6 flex items-start gap-3 text-sm">
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(checked) => setAcknowledged(checked === true)}
+                className="mt-0.5"
+              />
+              <span>I have read and understand these rules.</span>
+            </label>
 
-        <Link
-          href="/signup"
-          aria-disabled={!acknowledged}
-          className={cn(
-            buttonVariants({ size: "lg" }),
-            "mt-6 h-12 w-full",
-            !acknowledged && "pointer-events-none bg-muted text-muted-foreground",
-          )}
-        >
-          I Understand &amp; Continue
-        </Link>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/signup"
+                aria-disabled={!acknowledged}
+                className={cn(
+                  buttonVariants({ size: "lg" }),
+                  "h-12 flex-1",
+                  !acknowledged && "pointer-events-none opacity-40",
+                )}
+              >
+                I Understand &amp; Continue
+              </Link>
+              <Link href="/welcome" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-12")}>
+                Back
+              </Link>
+            </div>
+          </div>
+        </Card>
       </div>
     </div>
   );

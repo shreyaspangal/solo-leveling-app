@@ -1,5 +1,6 @@
+import { Target } from "lucide-react";
 import { redirect } from "next/navigation";
-import { Card } from "@/components/ui/card";
+import { Card, PanelHeader } from "@/components/ui/card";
 import { domainOptions } from "@/lib/domains";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -27,33 +28,38 @@ export default async function SetupPage() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <div className="w-full max-w-lg">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Here&apos;s what you can track
-        </h1>
-        <p className="mt-3 text-muted-foreground">
-          You&apos;ll set up your first goals in the next step. Every area you
-          add contributes to your overall rank.
-        </p>
+        <Card brackets>
+          <PanelHeader as="h1" icon={Target}>
+            First-Time Setup
+          </PanelHeader>
+          <div className="p-6">
+            <p className="text-muted-foreground">
+              Here&apos;s what you can track. You&apos;ll set up your first
+              goals in the next step, and every area you add contributes to
+              your overall rank.
+            </p>
 
-        <ul className="mt-6 space-y-3">
-          {domainOptions.map((domain) => (
-            <li key={domain.id}>
-              <Card className={cn("p-4", !domain.available && "opacity-60")}>
-                <p className="font-medium">
-                  {domain.label}
-                  {!domain.available && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      Coming later
-                    </span>
-                  )}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">{domain.description}</p>
-              </Card>
-            </li>
-          ))}
-        </ul>
+            <ul className="mt-6 space-y-3">
+              {domainOptions.map((domain) => (
+                <li key={domain.id}>
+                  <Card className={cn("p-4", !domain.available && "opacity-60")}>
+                    <p className="font-medium">
+                      {domain.label}
+                      {!domain.available && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          Coming later
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">{domain.description}</p>
+                  </Card>
+                </li>
+              ))}
+            </ul>
 
-        <SetupForm />
+            <SetupForm />
+          </div>
+        </Card>
       </div>
     </div>
   );

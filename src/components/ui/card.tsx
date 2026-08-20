@@ -60,11 +60,17 @@ function PanelHeader({
   children,
   action,
   className,
+  as: HeadingTag = "h2",
 }: {
   icon?: React.ComponentType<{ size?: number; className?: string }>;
   children: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
+  // Every real usage titles a meaningful section, so this defaults to a
+  // real heading element (not a bare styled `<span>`) rather than making
+  // callers opt into accessible structure. Pass `as="h1"` for a page's
+  // single primary heading (the auth-flow screens, setup) -- one per page.
+  as?: "h1" | "h2" | "h3";
 }) {
   return (
     <div
@@ -77,14 +83,19 @@ function PanelHeader({
         className
       )}
     >
-      <span className="flex min-w-0 items-center gap-2">
+      {/* Tailwind's preflight resets h1-h3's font-size/font-weight to
+          `inherit`; color/text-transform/letter-spacing are naturally
+          inherited CSS properties Tailwind's reset never touches -- so this
+          heading picks up the parent div's styling with no override classes
+          needed. */}
+      <HeadingTag className="flex min-w-0 items-center gap-2">
         {Icon && <Icon size={14} className="shrink-0" />}
         <span
           aria-hidden
           className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_8px_var(--primary)]"
         />
         <span className="truncate">{children}</span>
-      </span>
+      </HeadingTag>
       {action}
     </div>
   )
