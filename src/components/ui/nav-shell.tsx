@@ -28,8 +28,10 @@ import { todayInTimezone, userTimezone } from "@/lib/today";
 // models Spirituality/Learning already, but no route creates a goal in
 // either (only /quests/new, hardcoded to domain "quest"), so all four
 // render as disabled coming-soon tiles, same treatment regardless of which
-// ADR eventually owns them. "Quests" points at /quests/new (goal creation)
-// until Phase 10 builds a dedicated Quests view; "Command" is this app's
+// ADR eventually owns them. "Quests" points at /quests (Phase 10's real
+// tabs/detail-pane view, replacing the dead redirect that used to live
+// there) -- goal creation is still reachable from inside that view's "New
+// Quest" action, not a separate nav destination. "Command" is this app's
 // existing /dashboard, matching the reference's `short: "Home"`.
 const NAV_ITEMS: NavItem[] = [
   { key: "home", label: "Command", short: "Home", icon: "home", href: "/dashboard" },
@@ -37,7 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "finance", label: "Finance", short: "Finance", icon: "finance", href: null },
   { key: "fitness", label: "Fitness", short: "Fitness", icon: "fitness", href: null },
   { key: "learning", label: "Learning", short: "Learn", icon: "learning", href: null },
-  { key: "quests", label: "Quests", short: "Quests", icon: "quests", href: "/quests/new" },
+  { key: "quests", label: "Quests", short: "Quests", icon: "quests", href: "/quests" },
 ];
 
 // Async Server Component, not "use client" -- needs its own rank-data fetch
@@ -110,7 +112,11 @@ export async function NavShell({ children }: { children: ReactNode }) {
           )}
         </aside>
 
-        <main className="flex flex-1 flex-col pb-16 md:pb-0">{children}</main>
+        {/* Audit finding U32: a flex child defaults to min-width:auto, which
+            floors its shrink at its content's intrinsic width -- /quests'
+            two-column grid was pinning this at 429px regardless of
+            viewport. min-w-0 lets it actually shrink to the viewport. */}
+        <main className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">{children}</main>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur md:hidden">

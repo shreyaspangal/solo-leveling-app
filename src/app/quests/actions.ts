@@ -2,7 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { toUserError } from "@/lib/errors";
-import { createGoalEntrySchema, createGoalSchema } from "@/lib/schemas/goal";
+import {
+  createGoalEntrySchema,
+  createGoalSchema,
+  createMilestoneSchema,
+} from "@/lib/schemas/goal";
 import { createClient } from "@/lib/supabase/server";
 import { todayInTimezone, userTimezone } from "@/lib/today";
 
@@ -115,6 +119,92 @@ export async function upsertGoalEntry(
 
   if (error) {
     return { error: toUserError(error, "upsertGoalEntry") };
+  }
+
+  return { error: null };
+}
+
+// ADR-007 Phase 10: milestones are an informational checklist within a
+// quest's detail pane -- per CLAUDE.md's 2026-08-20 addendum, they do NOT
+// feed rankProgress/streak/personalDevelopmentScore (that mapping was never
+// written into an ADR, so it isn't implemented). This action and
+// toggleMilestone below are the only writes to the `milestones` table;
+// nothing in src/lib/rank-engine reads it.
+export async function createMilestone(
+  goalId: string,
+  title: string,
+): Promise<{ error: string | null; milestone: { id: string; title: string; completed: boolean; order: number } | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Order is append-only (next slot after however many this goal already
+  // has) -- no reordering UI exists yet, so this is the only order any
+  // milestone is ever created with. RLS (not this count) is still the real
+  // ownership boundary on the goal_id below, same posture as
+  // upsertGoalEntry -- a goalId for someone else's goal is rejected by the
+  // database's WITH CHECK, not by this count query succeeding or failing.
+  const { count } = await supabase
+    .from("milestones")
+    .select("id", { count: "exact", head: true })
+    .eq("goal_id", goalId);
+
+  const parsed = createMilestoneSchema.safeParse({
+    goalId,
+    title,
+    completed: false,
+    order: count ?? 0,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input", milestone: null };
+  }
+
+  const { data, error } = await supabase
+    .from("milestones")
+    .insert({
+      goal_id: parsed.data.goalId,
+      title: parsed.data.title,
+      completed: parsed.data.completed,
+      order: parsed.data.order,
+    })
+    .select("id, title, completed, order")
+    .single();
+
+  if (error || !data) {
+    return { error: toUserError(error ?? new Error("insert returned no row"), "createMilestone"), milestone: null };
+  }
+
+  return { error: null, milestone: data };
+}
+
+export async function toggleMilestone(
+  milestoneId: string,
+  completed: boolean,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // No explicit ownership check before the update, same posture as
+  // upsertGoalEntry -- RLS's WITH CHECK on milestones (goal_id in the
+  // caller's own goals, join-through per ADR-003) is the actual boundary.
+  const { error } = await supabase
+    .from("milestones")
+    .update({ completed })
+    .eq("id", milestoneId);
+
+  if (error) {
+    return { error: toUserError(error, "toggleMilestone") };
   }
 
   return { error: null };
