@@ -2,9 +2,18 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ComboboxInput } from "@/components/ui/combobox-input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { FormCheckbox } from "@/components/ui/form-checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createQuest } from "../actions";
 
@@ -81,62 +90,53 @@ export function NewQuestForm() {
         className="rounded-lg"
       />
       <Label htmlFor="category">Category</Label>
-      <Input
+      {/* Free text by design (ADR-001: nothing at the schema level
+          restricts it to these suggestions) -- a native datalist (<input
+          list>) renders a confusing dropdown-arrow affordance that reads as
+          a <select> even though it's a text field (owner report,
+          2026-08-20). ComboboxInput keeps free text + suggestions without
+          that native mechanism. */}
+      <ComboboxInput
         id="category"
         name="category"
-        type="text"
         placeholder="e.g. Habits"
         required
-        list="category-suggestions"
         value={category}
-        onChange={(e) => setCategory(e.target.value)}
-        className="h-11 rounded-lg"
+        onChange={setCategory}
+        suggestions={SUGGESTED_CATEGORIES}
       />
-      <datalist id="category-suggestions">
-        {SUGGESTED_CATEGORIES.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
 
-      {/* Native <select>, not shadcn's Radix-based Select -- this form
-          submits via FormData through a Server Action (createQuest), and a
-          native select's `name`/`value` work with that directly. Radix's
-          Select needs onValueChange + extra wiring to participate in
-          FormData the same way, which is out of scope for this
-          no-functional-change primitive-swap pass (ADR-007). */}
       <Label htmlFor="frequency">Frequency</Label>
-      <select
-        id="frequency"
-        name="frequency"
-        value={frequency}
-        onChange={(e) => setFrequency(e.target.value)}
-        className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
-      >
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-        <option value="monthly">Monthly</option>
-        <option value="custom">Custom</option>
-      </select>
+      {/* Radix Select (owner report, 2026-08-20 -- replacing the native
+          <select>'s unstyled look). Its onValueChange doesn't populate
+          FormData the way a native select's name/value would, so a
+          controlled hidden input carries the real value, same pattern
+          FormCheckbox already established for "custom UI control, hidden
+          input submits" (audit finding U10's fix). */}
+      <Select value={frequency} onValueChange={setFrequency}>
+        <SelectTrigger id="frequency" className="h-11 w-full rounded-lg">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="daily">Daily</SelectItem>
+          <SelectItem value="weekly">Weekly</SelectItem>
+          <SelectItem value="monthly">Monthly</SelectItem>
+          <SelectItem value="custom">Custom</SelectItem>
+        </SelectContent>
+      </Select>
+      <Input type="hidden" name="frequency" value={frequency} readOnly />
 
       <Label htmlFor="startDate">Start date</Label>
-      <Input
-        id="startDate"
-        name="startDate"
-        type="date"
-        required
-        value={today}
-        onChange={(e) => setToday(e.target.value)}
-        className="h-11 rounded-lg"
-      />
+      <DatePicker id="startDate" name="startDate" value={today} onChange={setToday} required />
 
       <Label htmlFor="targetDate">Target completion date (optional)</Label>
-      <Input
+      <DatePicker
         id="targetDate"
         name="targetDate"
-        type="date"
         value={targetDate}
-        onChange={(e) => setTargetDate(e.target.value)}
-        className="h-11 rounded-lg"
+        onChange={setTargetDate}
+        placeholder="No target date"
+        min={today}
       />
 
       {/* Audit finding U10 -- see FormCheckbox for why this isn't a plain

@@ -33,13 +33,6 @@ function Card({
       data-size={size}
       className={cn(
         "group/card relative flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
-        // Aceternity-sourced glow pattern (ADR-007 phase 4), CSS-only per
-        // pick-ui-library -- a plain box-shadow, not Motion. Paired with
-        // `brackets` rather than a separate prop: both mark the same
-        // "prominent panel" treatment the reference applies together, and
-        // box-shadow isn't clipped by this element's own overflow-hidden
-        // (that only clips content/children, not the box's own shadow).
-        brackets && "shadow-[0_0_32px_-8px_var(--primary)]",
         className
       )}
       {...props}

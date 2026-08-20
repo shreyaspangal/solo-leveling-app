@@ -2585,3 +2585,108 @@ empty — the reference's Command view fills that space with the five panels we 
 have data for. This is a consequence of the correct scope decision, not a defect, and the fix is
 *not* to invent data. If the sparseness matters for the client link, the lever is column width or
 panel arrangement, which is a design call for the owner rather than an audit finding.
+
+---
+
+## Three owner-reported bugs — fixed, pending verification
+
+**Status:** built, awaiting auditer verification · **2026-08-20**
+
+Owner pushed the previous commit and reported three real bugs from actually clicking around --
+recorded plainly, not filed as audit finding IDs since they came directly from the owner, not from
+a review pass.
+
+**1. Glow removed from `Card brackets`.** The Phase 4 pairing of the corner-bracket decoration with
+a colored `shadow-[0_0_32px_-8px_var(--primary)]` glow was based on a misreading of the reference:
+re-checked its actual CSS (`.panel{...box-shadow:0 0 0 1px rgba(56,207,255,.04) inset,0 18px 50px
+-30px rgba(0,0,0,.9)...}`), and the reference's *default* panel shadow is a subtle ambient one, not
+a colored glow -- nothing in the reference pairs a colored glow with every bracketed panel. Once
+Phase 9.5/10 wired `brackets` onto many more surfaces than Phase 4's original single dashboard rank
+card, the same effect that read as a subtle accent on one card stacked into what the owner
+correctly called "horrible" across a whole page. Removed the glow line entirely from `card.tsx`;
+`brackets` now means corner accents only, closer to the reference's actual restraint.
+
+**2. Empty-state icon.** `/quests`' "No quests yet" empty state gets a large dimmed `Swords` icon
+above the text (matching the panel's own header icon), not bare text.
+
+**3. Form field primitives.** Three genuine UX complaints, all in `quests/new/new-quest-form.tsx`:
+- **Category** used a native `<input list>` (HTML datalist) -- Chrome renders a dropdown-arrow
+  affordance for this that reads as a `<select>` even though it's free text, which is confusing
+  (and free text is by design, ADR-001: nothing at the schema level restricts category to the
+  suggested values, so a plain `<Select>` would have been the wrong fix). New `ComboboxInput`
+  (`src/components/ui/combobox-input.tsx`): a controlled text input with a dropdown-on-focus
+  suggestion list, filtered by what's typed, click-to-select -- free text stays possible, the
+  confusing native mechanism is gone.
+- **Frequency** was a native `<select>`, kept native in the original primitive-swap pass
+  specifically to avoid FormData wiring work -- now Radix `Select` (already shadcn-generated,
+  previously uncommitted per U11) with a controlled hidden `Input` carrying the real value, the
+  same "custom UI control, hidden input submits" pattern `FormCheckbox` already established for
+  the daily-tracking checkbox (audit finding U10's fix).
+- **Start date / target date** were native `<input type="date">`. New `DatePicker`
+  (`src/components/ui/date-picker.tsx`): Popover + shadcn `Calendar` (`react-day-picker`, new
+  dependency) behind a styled `Button` trigger, same hidden-input-carries-the-value pattern.
+  ISO string <-> `Date` conversion is done in local time, not `new Date(iso)` (which parses as UTC
+  and can display the wrong calendar day in timezones behind UTC).
+
+Added via `npx shadcn@latest add select popover calendar` -- confirmed it did NOT overwrite the
+already-customized `button.tsx` (declined the prompt), and `select.tsx`/`popover.tsx` are the
+components `select.tsx` in particular was dead code for since U11; now actually imported and used.
+
+Full check suite green: `tsc`/`eslint`/`vitest` (105/105)/`build`/`smoke`. **Not verified myself,
+and this is the one that most needs it:** I rewired FormData submission mechanics on three fields
+of a real Server Action form (`createQuest`) -- lint/types/build can't confirm a real form
+submission actually reaches the server with the right values. Please walk the full creation flow
+in a real browser: pick a category (both by typing free text and by clicking a suggestion), pick a
+frequency, pick both dates via the calendar, submit, and confirm the created quest has the exact
+values chosen -- not just that the page renders.
+
+---
+
+## Three owner-reported bugs — VERIFIED FIXED. No findings.
+
+**Re-checked:** 2026-08-20 · form mechanics verified against the database, not the UI
+
+### 3. Rewired form fields — all four values land correctly in Postgres
+
+This was the risky one: three primitives swapped on `createQuest`'s real form, all using the
+hidden-input pattern, i.e. exactly the shape that produced U10/U13/U14. Verified by reading the
+**`goals` row**, not by trusting the rendered UI.
+
+| Path | Chosen in UI | Stored in DB | |
+|---|---|---|---|
+| Category — **free text** | `Zzz Bespoke Cat` | `Zzz Bespoke Cat` | ✅ |
+| Category — **suggestion click** | `Personal` | `Personal` | ✅ |
+| Frequency — Radix Select | `monthly` | `monthly` | ✅ |
+| Start date — calendar pick | Aug 5 2026 | `2026-08-05` | ✅ |
+| Target date — calendar pick | Aug 25 2026 | `2026-08-25` | ✅ |
+
+Suggestions offered were `Personal, Career, Family, Travel, Business, Relationships`; both the
+free-text and click paths write the chosen value. Trigger labels matched their hidden inputs at
+submit time (`AUG 5, 2026` ↔ `2026-08-05`), so visible and submitted state agree.
+
+**U10-class regression check — clean.** Submitted with an empty title to force rejection, having
+first chosen a category, a non-default frequency and a target date:
+
+    before reject: {category:"RejectCat", frequency:"weekly", startDate:"2026-08-20", targetDate:"2026-08-25", dailyTracking:"on"}
+    after  reject: {category:"RejectCat", frequency:"weekly", startDate:"2026-08-20", targetDate:"2026-08-25", dailyTracking:"on"}
+
+Every value preserved, visible triggers still agree with the hidden inputs, form still rendered.
+None of the three new primitives reintroduces the silent-reversal failure that took four attempts
+to kill on the checkbox.
+
+### 1. Bracket glow removed — confirmed
+
+Bracketed cards now compute to fully transparent shadows
+(`rgba(0,0,0,0) 0px 0px 0px 0px …` across the whole stack). The corner accents remain.
+
+The diagnosis behind this fix was right and worth recording: the glow came from a Phase 4 misreading
+of the reference, whose default panel shadow is a subtle ambient one, not a coloured glow. It was
+invisible as a problem while only the dashboard rank card used `brackets`; Phase 9.5 and 10 put
+brackets on many surfaces at once and the effect compounded. A latent wrong decision only becoming
+visible at scale — worth remembering as a pattern, not just a fix.
+
+### 2. Empty state — confirmed
+
+`/quests` empty state renders "No quests yet" above a 48px dimmed icon.
+
+**Zero console errors across every path tested.**

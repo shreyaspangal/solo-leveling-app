@@ -122,8 +122,9 @@ export function QuestsView({ quests, today }: { quests: Quest[]; today: string }
         <div className="w-full max-w-lg">
           <Card brackets>
             <PanelHeader icon={Swords}>Quests</PanelHeader>
-            <div className="p-8 text-center text-muted-foreground">
-              <p>No quests yet.</p>
+            <div className="flex flex-col items-center p-8 text-center text-muted-foreground">
+              <Swords aria-hidden className="size-10 text-primary/50" />
+              <p className="mt-3">No quests yet.</p>
               <Button asChild className="mt-4">
                 <Link href="/quests/new">
                   <Plus className="size-4" />
