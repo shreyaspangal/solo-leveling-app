@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { signUpWithApple, signUpWithEmail, signUpWithGoogle } from "./actions";
 
 // PRD "3. Account Creation" / "4. Account Authentication".
@@ -18,12 +19,12 @@ export default function SignUpPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
 
         <form action={signUpWithGoogle}>
-          <Button type="submit" variant="outline" className="mt-6 h-11 w-full rounded-full">
+          <Button type="submit" variant="outline" className="mt-6 h-11 w-full">
             Continue with Google
           </Button>
         </form>
         <form action={signUpWithApple}>
-          <Button type="submit" variant="outline" className="mt-3 h-11 w-full rounded-full">
+          <Button type="submit" variant="outline" className="mt-3 h-11 w-full">
             Continue with Apple
           </Button>
         </form>
@@ -35,15 +36,30 @@ export default function SignUpPage() {
         </div>
 
         <form action={formAction} className="space-y-3">
-          <Input name="name" type="text" placeholder="Name" required className="h-11 rounded-lg" />
+          {/* Audit finding U24: placeholder alone is not an accessible name --
+              it disappears once typed (WCAG 3.3.2) and screen readers announce
+              nothing (4.1.2/1.3.1). A real <Label> fixes both. */}
+          <Label htmlFor="name">Name</Label>
           <Input
+            id="name"
+            name="name"
+            type="text"
+            placeholder="Name"
+            required
+            className="h-11 rounded-lg"
+          />
+          <Label htmlFor="email">Email address</Label>
+          <Input
+            id="email"
             name="email"
             type="email"
             placeholder="Email"
             required
             className="h-11 rounded-lg"
           />
+          <Label htmlFor="password">Password</Label>
           <Input
+            id="password"
             name="password"
             type="password"
             placeholder="Password"
@@ -54,7 +70,7 @@ export default function SignUpPage() {
 
           {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-          <Button type="submit" disabled={pending} className="h-11 w-full rounded-full">
+          <Button type="submit" disabled={pending} className="h-11 w-full">
             {pending ? "Creating account…" : "Sign Up"}
           </Button>
         </form>

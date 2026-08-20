@@ -5,11 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import { SetupForm } from "./setup-form";
 
-// PRD "5. First-Time Setup": choose which areas to track. Per ADR-002, which
-// domains a user "opted into" is implied by which goals they create, not a
-// stored flag -- so this step is UX guidance into Phase 1's goal-creation
-// flow, not a preference write. Finance/Fitness are shown but disabled since
-// their entities don't exist yet (ADR-004/005, Phase 2).
+// PRD "5. First-Time Setup": an overview of what you can track. Per ADR-002,
+// which domains a user "opted into" is implied by which goals they create,
+// not a stored flag -- there is nothing here for a selection to persist
+// into, so (audit finding U22, owner decision 2026-08-20) these cards are
+// deliberately non-interactive; the copy below describes rather than asks,
+// instead of presenting a choice the screen can't accept. Finance/Fitness/
+// Spirituality/Learning show "Coming later" -- only Quests has a route that
+// can create a goal today (audit finding U23); ADR-004/005 (Finance/Fitness)
+// and Phase 2 (Spirituality/Learning) are all still ahead.
 export default async function SetupPage() {
   const supabase = await createClient();
   const {
@@ -24,7 +28,7 @@ export default async function SetupPage() {
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
       <div className="w-full max-w-lg">
         <h1 className="text-2xl font-semibold tracking-tight">
-          What do you want to track?
+          Here&apos;s what you can track
         </h1>
         <p className="mt-3 text-muted-foreground">
           You&apos;ll set up your first goals in the next step. Every area you

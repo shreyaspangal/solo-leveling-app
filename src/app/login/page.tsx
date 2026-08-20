@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { logInWithApple, logInWithEmail, logInWithGoogle } from "./actions";
 
 export default function LoginPage() {
@@ -17,12 +18,12 @@ export default function LoginPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Log in</h1>
 
         <form action={logInWithGoogle}>
-          <Button type="submit" variant="outline" className="mt-6 h-11 w-full rounded-full">
+          <Button type="submit" variant="outline" className="mt-6 h-11 w-full">
             Continue with Google
           </Button>
         </form>
         <form action={logInWithApple}>
-          <Button type="submit" variant="outline" className="mt-3 h-11 w-full rounded-full">
+          <Button type="submit" variant="outline" className="mt-3 h-11 w-full">
             Continue with Apple
           </Button>
         </form>
@@ -34,14 +35,21 @@ export default function LoginPage() {
         </div>
 
         <form action={formAction} className="space-y-3">
+          {/* Audit finding U24: placeholder alone is not an accessible name --
+              it disappears once typed (WCAG 3.3.2) and screen readers announce
+              nothing (4.1.2/1.3.1). A real <Label> fixes both. */}
+          <Label htmlFor="email">Email address</Label>
           <Input
+            id="email"
             name="email"
             type="email"
             placeholder="Email"
             required
             className="h-11 rounded-lg"
           />
+          <Label htmlFor="password">Password</Label>
           <Input
+            id="password"
             name="password"
             type="password"
             placeholder="Password"
@@ -51,7 +59,7 @@ export default function LoginPage() {
 
           {state.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-          <Button type="submit" disabled={pending} className="h-11 w-full rounded-full">
+          <Button type="submit" disabled={pending} className="h-11 w-full">
             {pending ? "Logging in…" : "Log In"}
           </Button>
         </form>
